@@ -1,0 +1,61 @@
+# ── Feedback Management System — full stack (mongo + api + web) ──────────────
+# Run:   docker compose up --build
+# Then:  open http://localhost:8080   (admin@example.com / see SEED_ADMIN_PASSWORD)
+#
+# Mongo runs as a SINGLE-NODE REPLICA SET so multi-document transactions work
+# (the feedback write is transactional). The healthcheck initiates the set on
+# first boot. If you prefer a plain standalone, the API degrades gracefully to
+# ordered writes guarded by the DeviceLock unique index.
+
+services:
+  mongo:
+    image: mongo:7
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Idempotently initiate the replica set, then report healthy once primary.
+      test: >
+        mongosh --quiet --eval '
+          try { rs.status().ok }
+          catch (e) { rs.initiate({_id:"rs0",members:[{_id:0,host:"mongo:27017"}]}) }
+        '
+      interval: 5s
+      timeout: 30s
+      start_period: 5s
+      retries: 30
+
+  api:
+    build: ./FMS_Backend
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      MONGO_URI: mongodb://mongo:27017/fms?replicaSet=rs0
+      # DEMO-ONLY strong secrets so the prod-mode guard in config/env.js passes.
+      # Generate your own for anything real: `openssl rand -hex 32`.
+      JWT_SECRET: 9edf3ecfda80167a23dd7ed5ec834f6ff6eca3c8c04de1ce0f63960f1f69dcfc
+      DEVICE_SALT: 50af45a218aeb1c657140c54dfd22f2e937d1bf764e2733afb6d3f3b3c6b712c
+      # The browser reaches everything through the web container over plain HTTP
+      # (same-origin via nginx), so cookies must NOT be Secure or they'd be dropped.
+      COOKIE_SECURE: "false"
+      CLIENT_ORIGINS: http://localhost:8080
+      # Deterministic dev admin password for docker onboarding (change in prod).
+      SEED_ADMIN_EMAIL: admin@example.com
+      SEED_ADMIN_PASSWORD: Admin@12345
+    ports:
+      - "5000:5000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  web:
+    build: ./FMS_Frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  mongo-data:

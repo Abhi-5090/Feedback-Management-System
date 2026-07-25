@@ -1,0 +1,149 @@
+import { useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import { DashboardAPI } from '../../api/endpoints.js';
+import { usePolling } from '../../hooks/usePolling.js';
+import { useAuth } from '../../auth/AuthContext.jsx';
+import { useToast } from '../../components/Toast.jsx';
+import StatTile from '../../components/StatTile.jsx';
+import Card from '../../components/Card.jsx';
+import Hero from '../../components/Hero.jsx';
+import OpenBatchesPanel from '../../components/OpenBatchesPanel.jsx';
+import CommentsFeed from '../../components/CommentsFeed.jsx';
+import ThemesPanel from '../../components/ThemesPanel.jsx';
+import ExportButtons from '../../components/ExportButtons.jsx';
+import { SkeletonBlock } from '../../components/Spinner.jsx';
+import Icon from '../../components/Icon.jsx';
+import ParamBarChart from '../../components/charts/ParamBarChart.jsx';
+import TrendLineChart from '../../components/charts/TrendLineChart.jsx';
+import VolumeBarChart from '../../components/charts/VolumeBarChart.jsx';
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <SkeletonBlock key={i} height={104} className="rounded-2xl" />
+        ))}
+      </div>
+      <SkeletonBlock height={92} className="rounded-2xl" />
+      <div className="grid gap-5 lg:grid-cols-2">
+        <SkeletonBlock height={300} className="rounded-2xl" />
+        <SkeletonBlock height={300} className="rounded-2xl" />
+      </div>
+    </div>
+  );
+}
+
+export default function TrainerDashboard() {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await DashboardAPI.trainerMe());
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  usePolling(load, 8000, true);
+
+  const k = data?.kpis;
+
+  return (
+    <div className="space-y-5">
+      <Hero
+        eyebrow="Trainer workspace"
+        title={`Welcome back, ${user?.name?.split(' ')[0] || 'there'}`}
+        subtitle="Everything here is scoped to the classes assigned to you — never anyone else's data."
+        metricLabel="My rating"
+        metric={k ? k.overallAverage.toFixed(2) : '—'}
+        metricSuffix="/ 5"
+        stats={
+          k
+            ? [
+                { label: 'Responses', value: k.feedbackCount },
+                { label: 'Classes', value: k.myClasses },
+              ]
+            : []
+        }
+        actions={<ExportButtons path="/export/trainer/me" baseName="my_feedback" />}
+      />
+
+      {loading && !data ? (
+        <DashboardSkeleton />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatTile label="My classes" value={k.myClasses} icon="book" accent="sky" delay={0}
+              hint="Training subjects the admin has assigned to you." />
+            <StatTile label="My batches" value={k.myBatches} icon="ticket" accent="brand" delay={50}
+              hint="Cohorts across all of your classes." />
+            <StatTile label="Responses" value={k.feedbackCount} icon="inbox" accent="amber" delay={100}
+              hint="Anonymous responses received across your classes." />
+            <StatTile label="My avg rating" value={k.overallAverage.toFixed(2)} icon="star" accent="rose" delay={150}
+              sub="out of 5"
+              hint="Mean of all stars students gave across every rated parameter." />
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Card
+              title="My average per parameter"
+              icon="barChart"
+              hint="How your students rate each dimension on average (1–5). Switch to Table for exact values."
+            >
+              <ParamBarChart data={data.charts.perParameter} />
+            </Card>
+            <Card title="My rating trend" icon="trendUp" hint="Your daily average rating over time.">
+              <TrendLineChart data={data.charts.trend} />
+            </Card>
+          </div>
+
+          {/* Full-width rows — see the note on the admin dashboard. */}
+          <Card
+            title="Responses per class"
+            icon="building"
+              hint="How much feedback each of your classes has collected. Select a class below to drill down."
+            >
+              <VolumeBarChart data={data.charts.volumePerClass} />
+              {data.charts.volumePerClass?.length > 0 && (
+                <div className="mt-4 border-t border-line pt-3">
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                    Drill into a class
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {data.charts.volumePerClass.map((c) => (
+                      <Link
+                        key={c.classId}
+                        to={`/trainer/class/${c.classId}`}
+                        className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-brand-500/10 px-2.5 py-1 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-500/20 transition-colors duration-150 hover:bg-brand-500/20 dark:text-brand-300"
+                      >
+                        {c.className}
+                        <span className="tnum text-brand-600/70 dark:text-brand-400/70">
+                          {c.responses}
+                        </span>
+                        <Icon name="chevronRight" size={13} />
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+          </Card>
+
+          <OpenBatchesPanel
+            batches={data.openBatchList}
+            hint="Your batches currently accepting feedback, with a live submitted/expected counter."
+          />
+
+          <ThemesPanel params={{}} />
+
+          <CommentsFeed comments={data.comments} title="What your students are saying" />
+        </>
+      )}
+    </div>
+  );
+}

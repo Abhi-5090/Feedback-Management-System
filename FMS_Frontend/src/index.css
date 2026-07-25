@@ -1,0 +1,311 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS
+   Light is default; `.dark` on <html> flips them. rgb() triples so Tailwind's
+   <alpha-value> modifier works (e.g. bg-card/60).
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  /* ── Torii Minds palette ──────────────────────────────────────────────────
+     Ported verbatim from the toriiminds.com design tokens so this product is
+     visibly the same family as the placement-training feedback site.
+     Torii names map onto ours as: background/surface → card, surface-2 →
+     surface, border → line, foreground → ink.
+     The page sits on Torii's surface-2 rather than pure white so cards still
+     read as raised — same palette, with the separation a dashboard needs. */
+  --surface: 247 248 250;   /* app background  (Torii surface-2 #F7F8FA) */
+  --surface-2: 240 242 246; /* recessed wells, table headers, hovers */
+  --card: 255 255 255;      /* raised cards    (Torii surface   #FFFFFF) */
+
+  --ink: 17 24 39;          /* Torii foreground #111827 */
+  --muted: 107 114 128;     /* Torii muted      #6B7280 */
+  --subtle: 156 163 175;    /* tertiary / placeholder */
+
+  --line: 229 231 235;      /* Torii border     #E5E7EB */
+  --ring: 234 88 41;        /* focus ring — Torii vermilion */
+
+  /* Motion — strong custom curves. The CSS built-ins are too weak to read as
+     intentional. Never `ease-in` on UI: it delays the first frame, which is
+     exactly when the user is looking. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Durations — dashboards are crisp/fast; the student flow may go softer */
+  --d-press: 140ms;
+  --d-hover: 180ms;
+  --d-pop: 200ms;
+  --d-modal: 260ms;
+}
+
+.dark {
+  /* Torii dark theme — deep navy/charcoal, not neutral grey. */
+  --surface: 11 15 26;      /* Torii background #0B0F1A */
+  --surface-2: 24 31 49;    /* Torii surface-2  #181F31 */
+  --card: 17 23 38;         /* Torii surface    #111726 */
+
+  --ink: 237 240 247;       /* Torii foreground #EDF0F7 */
+  --muted: 148 158 178;     /* Torii muted      #949EB2 */
+  --subtle: 116 126 146;
+
+  --line: 39 47 67;         /* Torii border     #272F43 */
+  --ring: 234 88 41;        /* vermilion holds up on dark — no lighter step needed */
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-surface text-ink font-sans antialiased;
+  margin: 0;
+  /* Contextual alternates + tabular figures so metrics don't jitter as they poll */
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* Metrics, counters and table numbers must not shift width while live-updating */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPONENT CLASSES
+   Note: every transition names its exact properties. `transition: all` is a
+   correctness bug — it animates properties you never intended (like layout).
+   ═══════════════════════════════════════════════════════════════════════════ */
+@layer components {
+
+  /* ── Surfaces ──────────────────────────────────────────────────────────── */
+  .card {
+    @apply bg-card rounded-2xl border border-line shadow-card;
+  }
+
+  /* Major panels get a larger radius than inner elements. Nesting a 12px radius
+     inside a 28px one is what makes a layout feel considered rather than
+     uniformly rounded. */
+  .panel {
+    @apply bg-card rounded-3xl border border-line shadow-card;
+  }
+
+  /* ── Hero band ─────────────────────────────────────────────────────────────
+     A layered radial mesh rather than a flat gradient: three offset colour
+     stops give the band depth without an image, and it stays crisp at any
+     width because it's all in gradient space. */
+  .hero {
+    @apply relative overflow-hidden rounded-2xl;
+    /* Torii's deep navy base with the vermilion brand blooming from the left —
+       the gate colour against night, which is the site's core visual idea. */
+    background-color: #0b0f1a;
+    background-image:
+      radial-gradient(120% 150% at 0% 0%, rgba(234, 88, 41, 0.85) 0%, transparent 58%),
+      radial-gradient(90% 120% at 78% 10%, rgba(209, 71, 28, 0.45) 0%, transparent 55%),
+      radial-gradient(110% 140% at 100% 100%, rgba(15, 23, 42, 0.85) 0%, transparent 60%);
+  }
+  /* Fine grain over the mesh kills gradient banding on wide displays. */
+  .hero::after {
+    content: '';
+    @apply pointer-events-none absolute inset-0 opacity-[0.20];
+    background-image: radial-gradient(rgba(255, 255, 255, 0.5) 0.5px, transparent 0.5px);
+    background-size: 4px 4px;
+  }
+  .hero-body { @apply relative z-10; }
+
+  /* Glass tile used ON the hero, where normal card tokens would be invisible */
+  .hero-tile {
+    @apply rounded-2xl border border-white/15 bg-white/10 backdrop-blur-sm;
+  }
+  /* Interactive card — only lifts on real pointers (touch fires hover on tap) */
+  .card-interactive {
+    @apply card;
+    transition: box-shadow var(--d-hover) var(--ease-out),
+                transform var(--d-hover) var(--ease-out),
+                border-color var(--d-hover) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .card-interactive:hover {
+      @apply shadow-card-hover border-line;
+      transform: translateY(-2px);
+    }
+  }
+
+  /* Cards in a browsable GRID (the Feedbacks class cards) lift on hover — they
+     are things you pick from, so signalling "pickable" is worth the motion.
+     Gated behind a fine pointer: on touch, :hover latches after a tap and the
+     card would sit raised until you touched something else. */
+  @media (hover: hover) and (pointer: fine) {
+    .lift {
+      transition: transform var(--d-hover) var(--ease-out),
+                  box-shadow var(--d-hover) var(--ease-out),
+                  border-color var(--d-hover) var(--ease-out);
+    }
+    .lift:hover {
+      @apply shadow-card-hover;
+      transform: translateY(-3px);
+    }
+  }
+
+  .well { @apply bg-surface-2 rounded-xl border border-line/60; }
+
+  /* ── Buttons ───────────────────────────────────────────────────────────── */
+  /* Pill buttons to match the Torii control language. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5
+           text-sm font-semibold select-none
+           disabled:opacity-50 disabled:pointer-events-none;
+    transition: transform var(--d-press) var(--ease-out),
+                background-color var(--d-hover) ease,
+                border-color var(--d-hover) ease,
+                color var(--d-hover) ease,
+                box-shadow var(--d-hover) var(--ease-out);
+  }
+  /* Press feedback: the single highest-value micro-interaction. It tells the
+     user the interface heard them, before the network ever responds. */
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+
+  .btn-primary {
+    @apply btn text-white shadow-brand;
+    background-image: linear-gradient(to bottom, theme('colors.brand.500'), theme('colors.brand.600'));
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-primary:hover { @apply shadow-brand-hover; filter: brightness(1.07); }
+  }
+
+  .btn-outline { @apply btn border border-line bg-card text-ink; }
+  .btn-ghost   { @apply btn bg-transparent text-muted; }
+  .btn-danger  { @apply btn bg-rose-600 text-white; }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-outline:hover { @apply bg-surface-2 border-subtle/40 text-ink; }
+    .btn-ghost:hover   { @apply bg-surface-2 text-ink; }
+    .btn-danger:hover  { @apply bg-rose-700; }
+  }
+
+  /* ── Form controls ─────────────────────────────────────────────────────────
+     Pill-shaped, matching the Torii field style
+     (`h-10 rounded-full border border-border bg-surface … focus:ring-brand/30`).
+     Textareas stay rounded-xl — a multi-line pill reads as a mistake. */
+  .input {
+    @apply w-full rounded-full border border-line bg-card px-4 py-2.5 text-sm
+           text-ink placeholder:text-subtle outline-none;
+    transition: border-color var(--d-hover) ease,
+                box-shadow var(--d-hover) var(--ease-out),
+                background-color var(--d-hover) ease;
+  }
+  textarea.input { @apply rounded-2xl; }
+  .input:focus {
+    @apply border-brand-500/50;
+    box-shadow: 0 0 0 3px rgb(var(--ring) / 0.30);
+  }
+  .input[aria-invalid='true'] {
+    @apply border-rose-500;
+    box-shadow: 0 0 0 3px theme('colors.rose.500/ 18%');
+  }
+  .label { @apply block text-sm font-medium text-ink mb-1.5; }
+  .hint  { @apply mt-1.5 text-xs text-muted; }
+
+  /* ── Chips / badges ────────────────────────────────────────────────────── */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1
+           text-xs font-medium ring-1 ring-inset;
+  }
+  .chip-neutral { @apply chip bg-surface-2 text-muted ring-line; }
+  .chip-open    { @apply chip bg-emerald-500/10 text-emerald-700 ring-emerald-600/20 dark:text-emerald-400; }
+  .chip-locked  { @apply chip bg-slate-500/10 text-muted ring-slate-500/20; }
+  .chip-brand   { @apply chip bg-brand-500/10 text-brand-700 ring-brand-500/20 dark:text-brand-300; }
+
+  /* ── Tables ────────────────────────────────────────────────────────────── */
+  .th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted;
+  }
+  .td { @apply px-4 py-3.5 text-sm text-ink align-middle; }
+  .tr-hover { transition: background-color var(--d-hover) ease; }
+  @media (hover: hover) and (pointer: fine) {
+    .tr-hover:hover { @apply bg-surface-2/70; }
+  }
+
+  /* ── Focus visibility (keyboard only — never punish mouse users) ────────── */
+  .focus-ring:focus-visible,
+  .btn:focus-visible,
+  a:focus-visible {
+    @apply outline-none;
+    box-shadow: 0 0 0 2px rgb(var(--card)), 0 0 0 4px rgb(var(--ring) / 0.9);
+  }
+
+  /* ── Skeleton loading ──────────────────────────────────────────────────── */
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-surface-2;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background-image: linear-gradient(90deg, transparent, rgb(var(--ink) / 0.06), transparent);
+    animation: shimmer 1.6s infinite;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STAGGER — for lists that enter together. Decorative only: never gates input.
+   Delays stay short (40ms) so the cascade reads as one motion, not a queue.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.stagger > * {
+  opacity: 0;
+  animation: fade-up 380ms var(--ease-out) forwards;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(6) { animation-delay: 200ms; }
+.stagger > *:nth-child(n + 7) { animation-delay: 240ms; }
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLBARS — hidden, but scrolling is fully intact.
+   Content still scrolls by wheel, trackpad, touch, keyboard (arrows/space/
+   PageUp/PageDown) and programmatic scrollTo; only the visual track/thumb is
+   suppressed. `scrollbar-width: none` covers Firefox, `-ms-overflow-style`
+   covers legacy Edge, and the ::-webkit- rule covers Chrome/Safari.
+   ═══════════════════════════════════════════════════════════════════════════ */
+* {
+  scrollbar-width: none;        /* Firefox */
+  -ms-overflow-style: none;     /* legacy Edge / IE */
+}
+::-webkit-scrollbar {           /* Chrome, Safari, Edge */
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Selection inherits the brand rather than the OS default blue */
+::selection { background: rgb(var(--ring) / 0.22); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REDUCED MOTION
+   "Reduced" means fewer and gentler, NOT zero: opacity and color transitions
+   aid comprehension and stay. Only movement is removed.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Keep entrances legible — just remove the travel */
+  .stagger > * { opacity: 1; transform: none; animation: none; }
+  .btn:active:not(:disabled) { transform: none; }
+  .card-interactive:hover { transform: none; }
+}
