@@ -2,10 +2,13 @@ import crypto from 'crypto';
 import { User } from '../models/User.js';
 import { PasswordResetToken } from '../models/PasswordResetToken.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { comparePassword, hashPassword } from '../utils/password.js';
+import { comparePassword, hashPassword, validatePasswordStrength } from '../utils/password.js';
 import { unauthorized, badRequest, conflict } from '../utils/ApiError.js';
-import { env } from '../config/env.js';
-import { sendMail, resetEmail } from '../services/emailService.js';
+import { env, isProd } from '../config/env.js';
+import { supportsTransactions } from '../config/db.js';
+import { PASSCODE_ENTROPY_BITS } from '../utils/passcode.js';
+import { MIN_PASSWORD_LENGTH } from '../utils/password.js';
+import { sendMail, resetEmail, mailStatus } from '../services/emailService.js';
 import { recordAudit } from '../services/auditService.js';
 
 import {
@@ -60,9 +63,23 @@ export const updateMe = asyncHandler(async (req, res) => {
     if (!currentPassword) throw badRequest('Enter your current password to set a new one.', 'CURRENT_PASSWORD_REQUIRED');
     const ok = await comparePassword(currentPassword, user.passwordHash);
     if (!ok) throw unauthorized('Your current password is incorrect.');
+    /* The zod schema already applied the generic rules; this adds the checks
+       that need to know WHO is setting it (own name, own email local-part),
+       which a schema has no access to. */
+    const weak = validatePasswordStrength(newPassword, { name: user.name, email: user.email });
+    if (weak) throw badRequest(weak, 'WEAK_PASSWORD');
+    if (await comparePassword(newPassword, user.passwordHash)) {
+      throw badRequest('Your new password must be different from the current one.', 'PASSWORD_REUSED');
+    }
     user.passwordHash = await hashPassword(newPassword);
     // Clear the bulk-import flag once a real password has been chosen.
     user.mustChangePassword = false;
+    /* Revoke every token issued under the old password. "Change my password"
+       is the action people take when they think someone else has access, so it
+       has to actually end those sessions — a stateless JWT otherwise stays
+       valid for its full 7 days. The caller's own cookie is re-issued below so
+       the person doing the change isn't logged out of the tab they're in. */
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
   }
 
   if (email && email.toLowerCase() !== user.email) {
@@ -75,10 +92,18 @@ export const updateMe = asyncHandler(async (req, res) => {
   await user.save();
 
   if (newPassword) {
-    recordAudit(req, { action: 'auth.password_changed', entity: 'user', entityId: user._id, entityName: user.name });
+    // Keep THIS session alive with a token carrying the new generation.
+    res.cookie(AUTH_COOKIE, signAuthToken(user), authCookieOptions());
+    recordAudit(req, {
+      action: 'auth.password_changed',
+      entity: 'user',
+      entityId: user._id,
+      entityName: user.name,
+      meta: { otherSessionsRevoked: true },
+    });
   }
 
-  res.json({ user });
+  res.json({ user, ...(newPassword ? { token: signAuthToken(user) } : {}) });
 });
 
 /**
@@ -146,8 +171,14 @@ export const resetPassword = asyncHandler(async (req, res) => {
   const user = await User.findById(grant.user);
   if (!user || !user.isActive) throw badRequest('That account is no longer active.', 'INACTIVE');
 
+  const weak = validatePasswordStrength(newPassword, { name: user.name, email: user.email });
+  if (weak) throw badRequest(weak, 'WEAK_PASSWORD');
+
   user.passwordHash = await hashPassword(newPassword);
   user.mustChangePassword = false;
+  // A reset is a recovery action — every existing session must die with the
+  // old password, including whoever may have been using it.
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
   await user.save();
 
   // Single-use: burn the grant, and any siblings issued for this account.
@@ -186,4 +217,65 @@ export const updateDigest = asyncHandler(async (req, res) => {
 export const logout = asyncHandler(async (_req, res) => {
   res.clearCookie(AUTH_COOKIE, { ...authCookieOptions(), maxAge: undefined });
   res.json({ ok: true });
+});
+
+/**
+ * POST /api/auth/logout-all
+ *
+ * Ends every session for this account, on every device, immediately. Clearing
+ * one cookie only ends the session doing the clearing; this bumps the token
+ * generation so all the others are refused too. The obvious thing to reach for
+ * after "I left myself signed in on a lab machine".
+ */
+export const logoutEverywhere = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  if (!user) throw unauthorized('Account not found');
+
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+  await user.save();
+
+  res.clearCookie(AUTH_COOKIE, { ...authCookieOptions(), maxAge: undefined });
+  recordAudit(req, {
+    action: 'auth.logout_all',
+    entity: 'user',
+    entityId: user._id,
+    entityName: user.name,
+  });
+  res.json({ ok: true, message: 'Signed out on all devices.' });
+});
+
+/**
+ * GET /api/auth/system  (any signed-in user)
+ *
+ * What the Settings page needs to tell the truth about the deployment: is mail
+ * actually configured, are transactions available, how strong is a passcode.
+ * Previously `mailStatus()` existed but nothing imported it, so Settings showed
+ * a hardcoded picture and the health check was a raw same-origin `fetch` that
+ * reported "down" on any cross-origin deploy.
+ */
+export const systemStatus = asyncHandler(async (req, res) => {
+  const admin = req.user.role === 'admin';
+  res.json({
+    ok: true,
+    service: 'fms-api',
+    appName: env.appName,
+    environment: env.nodeEnv,
+    // Deployment internals are an admin concern; a trainer just needs "ok".
+    ...(admin
+      ? {
+          mail: mailStatus(),
+          transactions: supportsTransactions(),
+          cookieSecure: env.cookieSecure,
+          digestsEnabled: env.digestsEnabled,
+          passcodeEntropyBits: PASSCODE_ENTROPY_BITS,
+          minPasswordLength: MIN_PASSWORD_LENGTH,
+          isProduction: isProd,
+          rateLimits: {
+            publicPerDevicePerMin: env.publicMaxPerDevice,
+            publicPerIpPerMin: env.publicIpMax,
+            loginPerIdentityPer15Min: env.loginMaxPerIdentity,
+          },
+        }
+      : { minPasswordLength: MIN_PASSWORD_LENGTH }),
+  });
 });

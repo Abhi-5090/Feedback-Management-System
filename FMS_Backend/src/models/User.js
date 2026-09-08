@@ -30,6 +30,24 @@ const userSchema = new mongoose.Schema(
     // password — useful for prompting a change on first login later.
     mustChangePassword: { type: Boolean, default: false },
 
+    /**
+     * Monotonic session generation, embedded in every JWT as `ver`.
+     *
+     * JWTs are stateless, so without this a stolen 7-day token stays valid for
+     * 7 days even after the owner changes their password — which is precisely
+     * the moment they are trying to revoke it. Bumping this invalidates every
+     * token issued earlier, making "change my password" a real logout-everywhere.
+     */
+    tokenVersion: { type: Number, default: 0 },
+
+    /**
+     * The short name this person is known by on the training board ("Bhargav"
+     * for "Bhargava R", "Peter" for "Jonathan Peters"). Stored so the schedule
+     * importer can match a board entry to an account deterministically instead
+     * of re-guessing a fuzzy string match on every run.
+     */
+    shortName: { type: String, trim: true, default: '', index: true },
+
     // Email digest preferences. `lastSentAt` is what makes the scheduler
     // idempotent — a restart or a second app instance can't double-send.
     digest: {

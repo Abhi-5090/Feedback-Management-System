@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { AuthAPI } from '../api/endpoints.js';
+import { AuthAPI, SystemAPI } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useTheme } from '../theme/ThemeContext.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -7,7 +7,7 @@ import PageHeader from '../components/PageHeader.jsx';
 import Card from '../components/Card.jsx';
 import Icon from '../components/Icon.jsx';
 
-const MIN_PASSWORD = 6;
+const MIN_PASSWORD = 8;
 
 /**
  * Settings — account, appearance and system info, for both roles.
@@ -28,7 +28,20 @@ export default function Settings() {
   const [savingPw, setSavingPw] = useState(false);
   const [showPw, setShowPw] = useState(false);
 
+  /* System facts come from GET /api/auth/system, through the shared axios
+     client. This used to be a raw `fetch('/api/health')`, which bypassed
+     VITE_API_URL and so reported "Unreachable" on any cross-origin deploy —
+     and could only ever show liveness, never whether mail was configured. */
+  const [system, setSystem] = useState(null);
   const [health, setHealth] = useState(null);
+
+  // Email digest preferences. The endpoint existed with no UI behind it, so
+  // the whole digest feature was unreachable and never had any recipients.
+  const [digest, setDigest] = useState({ enabled: false, frequency: 'weekly' });
+  const [savingDigest, setSavingDigest] = useState(false);
+  const [runningDigest, setRunningDigest] = useState(false);
+  const [signingOutAll, setSigningOutAll] = useState(false);
+  const [testingMail, setTestingMail] = useState(false);
 
   useEffect(() => {
     if (user) setProfile({ name: user.name || '', email: user.email || '' });
@@ -37,13 +50,84 @@ export default function Settings() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch('/api/health');
-        setHealth(r.ok ? 'ok' : 'down');
+        const s = await AuthAPI.system();
+        setSystem(s);
+        setHealth('ok');
       } catch {
         setHealth('down');
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (user?.digest) {
+      setDigest({
+        enabled: Boolean(user.digest.enabled),
+        frequency: user.digest.frequency || 'weekly',
+      });
+    }
+  }, [user]);
+
+  const saveDigest = async (next) => {
+    setSavingDigest(true);
+    const previous = digest;
+    setDigest(next); // optimistic: a toggle that lags feels broken
+    try {
+      await AuthAPI.updateDigest(next);
+      await refresh?.();
+      toast.success(next.enabled ? `Digest on — ${next.frequency}` : 'Digest off');
+    } catch (err) {
+      setDigest(previous);
+      toast.error(err.message || 'Could not save digest preference');
+    } finally {
+      setSavingDigest(false);
+    }
+  };
+
+  const runDigestNow = async () => {
+    setRunningDigest(true);
+    try {
+      const r = await SystemAPI.runDigests(true);
+      toast.success(
+        r.sent
+          ? `Sent ${r.sent} digest${r.sent === 1 ? '' : 's'} of ${r.considered} recipient(s)`
+          : `Nothing to send — ${r.considered} recipient(s) considered, ${r.skipped} skipped`
+      );
+    } catch (err) {
+      toast.error(err.message || 'Could not run digests');
+    } finally {
+      setRunningDigest(false);
+    }
+  };
+
+  const sendTestMail = async () => {
+    setTestingMail(true);
+    try {
+      const r = await SystemAPI.testMail();
+      // Delivered and "printed to a log" are very different outcomes, so they
+      // get different toasts rather than a shared "done".
+      if (r.delivered) toast.success(r.notice);
+      else toast.error(r.notice);
+    } catch (err) {
+      toast.error(err.message || 'Could not send the test message');
+    } finally {
+      setTestingMail(false);
+    }
+  };
+
+  const signOutEverywhere = async () => {
+    setSigningOutAll(true);
+    try {
+      await AuthAPI.logoutEverywhere();
+      toast.success('Signed out on all devices');
+      // This session's cookie is gone too, so send them to the login screen
+      // rather than leaving a page whose every request will now 401.
+      window.location.assign('/login');
+    } catch (err) {
+      toast.error(err.message || 'Could not sign out everywhere');
+      setSigningOutAll(false);
+    }
+  };
 
   const dirty = user && (profile.name !== user.name || profile.email !== user.email);
 
@@ -196,9 +280,14 @@ export default function Settings() {
                 autoComplete="new-password"
                 aria-invalid={pwTooShort ? 'true' : undefined}
               />
-              {pwTooShort && (
+              {pwTooShort ? (
                 <p className="mt-1.5 text-xs font-medium text-rose-600 dark:text-rose-400">
                   Must be at least {MIN_PASSWORD} characters.
+                </p>
+              ) : (
+                <p className="hint">
+                  A memorable phrase beats a short password with symbols in it. Very common
+                  passwords and your own name or email are rejected.
                 </p>
               )}
             </div>
@@ -223,12 +312,36 @@ export default function Settings() {
               )}
             </div>
 
+            <p className="flex items-start gap-1.5 rounded-xl bg-surface-2/60 px-3 py-2 text-[11px] text-muted">
+              <Icon name="info" size={12} className="mt-0.5 shrink-0" />
+              Changing your password signs you out everywhere else. This tab stays signed in.
+            </p>
+
             <div className="flex justify-end">
               <button type="submit" className="btn-primary" disabled={!canChangePw}>
                 {savingPw ? 'Changing…' : 'Change password'}
               </button>
             </div>
           </form>
+
+          <div className="mt-4 flex items-center justify-between gap-4 border-t border-line pt-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink">Sign out everywhere</p>
+              <p className="mt-0.5 text-xs text-muted">
+                Ends every session on every device, including this one. Useful after signing in on
+                a shared machine.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={signOutEverywhere}
+              disabled={signingOutAll}
+              className="btn-ghost shrink-0 text-rose-600 hover:!bg-rose-500/10 hover:!text-rose-700 dark:text-rose-400"
+            >
+              <Icon name="logout" size={15} />
+              {signingOutAll ? 'Signing out…' : 'Sign out all'}
+            </button>
+          </div>
         </Card>
 
         {/* ── Appearance ──────────────────────────────────────────────────── */}
@@ -266,6 +379,95 @@ export default function Settings() {
           </div>
         </Card>
 
+        {/* ── Email digest ────────────────────────────────────────────────── */}
+        <Card
+          title="Email digest"
+          icon="inbox"
+          subtitle="A periodic summary of what came in"
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4 rounded-2xl border border-line bg-surface-2/40 p-4">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-ink">Send me a summary</p>
+                <p className="mt-0.5 text-xs text-muted">
+                  {digest.enabled
+                    ? 'Response counts, averages and your busiest classes.'
+                    : 'Off — nothing is emailed to you.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={digest.enabled}
+                aria-label="Email digest"
+                disabled={savingDigest}
+                onClick={() => saveDigest({ ...digest, enabled: !digest.enabled })}
+                className={`focus-ring relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200 disabled:opacity-60 ${
+                  digest.enabled ? 'bg-brand-600' : 'bg-line'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                    digest.enabled ? 'translate-x-[1.375rem]' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {digest.enabled && (
+              <div>
+                <span className="label mb-1.5 block">Frequency</span>
+                <div
+                  role="radiogroup"
+                  aria-label="Digest frequency"
+                  className="inline-flex rounded-full bg-surface-2 p-1 ring-1 ring-inset ring-line"
+                >
+                  {['daily', 'weekly', 'monthly'].map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      role="radio"
+                      aria-checked={digest.frequency === f}
+                      disabled={savingDigest}
+                      onClick={() => digest.frequency !== f && saveDigest({ ...digest, frequency: f })}
+                      className={`focus-ring rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition-colors duration-150 disabled:opacity-60 ${
+                        digest.frequency === f ? 'bg-card text-ink shadow-sm' : 'text-muted hover:text-ink'
+                      }`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+                <p className="hint">
+                  Sent at most once per period. A period with no responses and no open batches is
+                  skipped rather than emailing you a row of zeros.
+                </p>
+              </div>
+            )}
+
+            {user?.role === 'admin' && (
+              <div className="flex items-center justify-between gap-4 border-t border-line pt-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink">Send now</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Fires every due digest immediately, so you can confirm delivery works without
+                    waiting for the schedule.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={runDigestNow}
+                  disabled={runningDigest}
+                  className="btn-ghost shrink-0"
+                >
+                  <Icon name="refresh" size={15} />
+                  {runningDigest ? 'Sending…' : 'Run now'}
+                </button>
+              </div>
+            )}
+          </div>
+        </Card>
+
         {/* ── System ──────────────────────────────────────────────────────── */}
         <Card title="System" icon="activity" subtitle="Environment and connectivity">
           <dl className="divide-y divide-line text-sm">
@@ -295,7 +497,93 @@ export default function Settings() {
                 {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}
               </span>
             </Row>
+
+            {/* Deployment facts, admin only. These answer the questions that
+                otherwise require SSH access: is mail actually going out, are
+                transactions available, how hard is a passcode to guess. */}
+            {system?.mail && (
+              <>
+                <Row label="Email delivery">
+                  {system.mail.configured ? (
+                    <span className="chip-open">
+                      <Icon name="check" size={12} />
+                      SMTP · {system.mail.host}
+                    </span>
+                  ) : (
+                    <span
+                      className="chip bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300"
+                      title="With no SMTP host configured, every message — including password-reset links — is printed to the server console instead of being sent."
+                    >
+                      <Icon name="alert" size={12} />
+                      Console only
+                    </span>
+                  )}
+                </Row>
+                <Row label="Transactions">
+                  <span className={system.transactions ? 'text-ink' : 'text-amber-700 dark:text-amber-400'}>
+                    {system.transactions ? 'Replica set — enabled' : 'Standalone — ordered-write fallback'}
+                  </span>
+                </Row>
+                <Row label="Secure cookies">
+                  <span className={system.cookieSecure ? 'text-ink' : 'text-amber-700 dark:text-amber-400'}>
+                    {system.cookieSecure ? 'On' : 'Off (plain HTTP)'}
+                  </span>
+                </Row>
+                <Row label="Passcode strength">
+                  <span className="tnum text-ink">~{system.passcodeEntropyBits} bits</span>
+                </Row>
+                <Row label="Student rate limit">
+                  <span className="tnum text-ink">
+                    {system.rateLimits?.publicPerDevicePerMin}/min per device
+                  </span>
+                </Row>
+                <Row label="Environment">
+                  <span className="text-ink">{system.environment}</span>
+                </Row>
+              </>
+            )}
           </dl>
+
+          {/* Mail is the part of a deployment most likely to be quietly broken,
+              and /forgot-password cannot report it (it must answer the same way
+              for every address, or it becomes an enumeration oracle). So the
+              state is stated plainly here, with a way to prove it. */}
+          {system?.mail && (
+            <div className="mt-4 border-t border-line pt-4">
+              {!system.mail.configured && (
+                <p className="mb-3 flex items-start gap-2 rounded-xl bg-amber-500/10 px-3.5 py-2.5 text-xs ring-1 ring-inset ring-amber-500/20">
+                  <Icon name="alert" size={13} className="mt-0.5 shrink-0 text-amber-700 dark:text-amber-400" />
+                  <span className="text-ink">
+                    <span className="font-semibold">Password reset emails are not being sent.</span>{' '}
+                    With no SMTP configured, every message is printed to the server log instead.
+                    Set <code className="font-mono">SMTP_HOST</code>,{' '}
+                    <code className="font-mono">SMTP_USER</code> and{' '}
+                    <code className="font-mono">SMTP_PASS</code> in the backend{' '}
+                    <code className="font-mono">.env</code>. Until then, hand out a reset link
+                    directly from the Mentors page.
+                  </span>
+                </p>
+              )}
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink">Send a test email</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Delivers a real message to {user?.email} and reports whether it was actually
+                    sent or only logged.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={sendTestMail}
+                  disabled={testingMail}
+                  className="btn-ghost shrink-0"
+                >
+                  <Icon name="inbox" size={15} />
+                  {testingMail ? 'Sending…' : 'Send test'}
+                </button>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
     </div>

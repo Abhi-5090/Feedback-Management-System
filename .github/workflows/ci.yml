@@ -6,6 +6,15 @@ on:
   pull_request:
 
 jobs:
+  # Runs first and fastest. A leaked credential is the one failure where you
+  # want to know before anything else has had a chance to go green.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check tracked files for credentials
+        run: bash scripts/check-secrets.sh
+
   backend-tests:
     runs-on: ubuntu-latest
     steps:
@@ -20,9 +29,9 @@ jobs:
         run: npm ci
       - name: Run tests (in-memory Mongo replica set → transaction path)
         working-directory: FMS_Backend
-        run: npm test
+        run: npm run test:ci
 
-  frontend-build:
+  frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +43,100 @@ jobs:
       - name: Install frontend deps
         working-directory: FMS_Frontend
         run: npm ci
+      # A react-router name used without importing it BUILDS FINE and crashes
+      # in the browser, so this runs before the build rather than after.
+      - name: Check for missing router imports
+        run: node scripts/check-imports.mjs
+
+      # The unit tests used to run only locally, so a broken component could
+      # reach main with CI fully green.
+      - name: Test
+        working-directory: FMS_Frontend
+        run: npm run test
       - name: Build
         working-directory: FMS_Frontend
         run: npm run build
+
+  # Proves the importer and migration parse and run end to end against a real
+  # replica set, so a schema change can't quietly break the one script that has
+  # to work on a production upgrade.
+  scripts:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
+          --health-interval 5s --health-timeout 10s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: FMS_Backend/package-lock.json
+      - run: npm ci
+        working-directory: FMS_Backend
+      - name: Import the schedule snapshot (standalone Mongo → fallback path)
+        working-directory: FMS_Backend
+        env:
+          MONGO_URI: mongodb://127.0.0.1:27017/fms_ci
+          JWT_SECRET: ci_only_secret_that_is_long_enough_for_the_guard_0123456789
+          DEVICE_SALT: ci_only_device_salt_that_is_long_enough_for_the_guard_01234
+        run: |
+          node src/seed.js
+          node src/scripts/import-schedule.js --password='CiImport#2026'
+          # Re-run to prove idempotence: nothing should be created twice.
+          node src/scripts/import-schedule.js --password='CiImport#2026' | tee /tmp/second.txt
+          grep -q "0 created, 14 updated" /tmp/second.txt
+      - name: Migration is a no-op on already-migrated data
+        working-directory: FMS_Backend
+        env:
+          MONGO_URI: mongodb://127.0.0.1:27017/fms_ci
+          JWT_SECRET: ci_only_secret_that_is_long_enough_for_the_guard_0123456789
+          DEVICE_SALT: ci_only_device_salt_that_is_long_enough_for_the_guard_01234
+        run: node src/scripts/migrate-mentor-rosters.js --dry-run
+
+      # Boot the real server and exercise it over HTTP. Unit tests cannot catch
+      # a broken startup path, an unreachable database, or an export that
+      # returns a 200 with no file bytes.
+      - name: Smoke test a running server
+        working-directory: FMS_Backend
+        env:
+          MONGO_URI: mongodb://127.0.0.1:27017/fms_ci
+          JWT_SECRET: ci_only_secret_that_is_long_enough_for_the_guard_0123456789
+          DEVICE_SALT: ci_only_device_salt_that_is_long_enough_for_the_guard_01234
+          PORT: '5555'
+          ADMIN_EMAIL: ci-admin@example.com
+          ADMIN_PASSWORD: ci-admin-passphrase-2026
+        run: |
+          node src/seed.js
+          npm start & echo $! > /tmp/api.pid
+          # Wait for readiness rather than sleeping a guessed number of seconds.
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:5555/api/ready >/dev/null && break || sleep 1
+          done
+          API=http://localhost:5555 \
+          ADMIN_EMAIL=ci-admin@example.com \
+          ADMIN_PASSWORD=ci-admin-passphrase-2026 \
+          bash ../scripts/smoke-test.sh
+          kill "$(cat /tmp/api.pid)"
+
+      # A cohort-sized burst, against a standalone Mongo (the ordered-write
+      # fallback). Proves nobody is dropped and the counters stay exact —
+      # the failure mode that cost 299 of 300 responses before it was fixed.
+      - name: Load test a cohort burst
+        working-directory: FMS_Backend
+        env:
+          MONGO_URI: mongodb://127.0.0.1:27017/fms_ci
+          JWT_SECRET: ci_only_secret_that_is_long_enough_for_the_guard_0123456789
+          DEVICE_SALT: ci_only_device_salt_that_is_long_enough_for_the_guard_01234
+          PORT: '5555'
+        run: |
+          npm start & echo $! > /tmp/api2.pid
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:5555/api/ready >/dev/null && break || sleep 1
+          done
+          node src/scripts/loadtest-cohort.js --students=200 --concurrency=200
+          kill "$(cat /tmp/api2.pid)"

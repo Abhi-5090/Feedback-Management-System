@@ -1,182 +1,44 @@
-import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AnalyticsAPI } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
+import Card, { EmptyState } from '../components/Card.jsx';
 import PageHeader from '../components/PageHeader.jsx';
-import { EmptyState } from '../components/Card.jsx';
 import { SkeletonBlock } from '../components/Spinner.jsx';
-import Icon, { StarIcon } from '../components/Icon.jsx';
+import Icon from '../components/Icon.jsx';
 import InfoTooltip from '../components/InfoTooltip.jsx';
+import { MentorRosterBadges } from '../components/MentorRosterPicker.jsx';
 
 /**
- * "Feedbacks" — the browse-by-class entry point, shared by admin and trainer.
+ * Feedbacks — one card per SESSION, a session being a (batch, subject) pair.
  *
- * One page, one component: the API scopes the class list by role server-side
- * (admin sees every class, a trainer sees only their own), so there is no
- * role-branching UI to keep in sync and no way for the client to widen its own
- * scope by asking differently.
+ * WHY NOT ONE CARD PER SUBJECT. That was the previous shape and it hid the
+ * thing people came to see. "Industry Readiness 1" is four separate second-year
+ * batches with different mentors; one card averaging all four belongs to nobody
+ * and every one of them looked identical. A card per session is a card per
+ * thing that actually happened: this cohort, this subject, these mentors.
  *
- * Each card answers "how is this class doing?" at a glance — rating, responses,
- * and its strongest/weakest parameter — then hands off to the full drill-down.
- * Deliberately shallow: a card should be readable in about two seconds.
+ * Filters, in the order they matter here:
+ *   - YEAR GROUP, because that is the first cut anyone makes;
+ *   - subject, to compare the same thing across cohorts;
+ *   - role (mentors only), separating what they delivered from what they
+ *     assisted;
+ *   - a sort, kept from the previous version.
+ *
+ * Year and subject are applied SERVER-side (the scoping must not be
+ * client-side for a mentor), and live in the URL so a view is linkable and
+ * Back works. Sorting is local — it needs no round trip.
  */
 
-/** Rating tone thresholds, matching the Torii feedback page. */
-function tone(v) {
-  if (!v) return { text: 'text-muted', bg: 'bg-surface-2', ring: 'ring-line' };
-  if (v >= 4) return { text: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10', ring: 'ring-emerald-500/20' };
-  if (v >= 3) return { text: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10', ring: 'ring-amber-500/20' };
-  return { text: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/10', ring: 'ring-rose-500/20' };
-}
-
-function timeAgo(d) {
-  if (!d) return null;
-  const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
-  if (s < 60) return 'just now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const days = Math.floor(h / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(d).toLocaleDateString();
-}
-
-function ClassCard({ c, basePath, showTrainer }) {
-  const t = tone(c.average);
-  const pct = c.average ? (c.average / 5) * 100 : 0;
-  const hasData = c.responses > 0;
-
-  return (
-    <article className="card lift group flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 p-5 pb-4">
-        <div className="min-w-0">
-          <h3 className="truncate text-[15px] font-semibold tracking-tight text-ink">{c.name}</h3>
-          {showTrainer && (
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-muted">
-              <Icon name="user" size={12} />
-              <span className="truncate">{c.trainer || 'Unassigned'}</span>
-            </p>
-          )}
-          {c.description && (
-            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted">{c.description}</p>
-          )}
-        </div>
-
-        {/* Rating badge — the headline number for this class */}
-        <div
-          className={`shrink-0 rounded-2xl px-3 py-2 text-center ring-1 ring-inset ${t.bg} ${t.ring}`}
-        >
-          <p className={`tnum text-xl font-bold leading-none ${t.text}`}>
-            {hasData ? c.average.toFixed(2) : '—'}
-          </p>
-          <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted">of 5</p>
-        </div>
-      </div>
-
-      {/* Rating bar — the same value as a length, which is easier to compare
-          across cards than reading four separate numbers. */}
-      <div className="px-5">
-        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-          <div
-            className="h-full origin-left rounded-full transition-transform duration-500 ease-out-expo"
-            style={{
-              transform: `scaleX(${pct / 100})`,
-              width: '100%',
-              backgroundColor: c.average >= 4 ? '#10b981' : c.average >= 3 ? '#f59e0b' : '#ea5829',
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Facts */}
-      <div className="mt-4 grid grid-cols-3 gap-2 px-5">
-        <Fact icon="inbox" label="Responses" value={c.responses} />
-        <Fact icon="ticket" label="Batches" value={c.batches} />
-        <Fact
-          icon="unlock"
-          label="Open now"
-          value={c.openBatches}
-          highlight={c.openBatches > 0}
-        />
-      </div>
-
-      {/* Strongest / weakest — one genuine insight per card */}
-      {hasData && c.strongest && (
-        <div className="mt-4 space-y-1.5 px-5 text-xs">
-          <p className="flex items-center gap-1.5 text-muted">
-            <Icon name="trendUp" size={12} className="text-emerald-600 dark:text-emerald-400" />
-            <span className="truncate">
-              Best: <span className="font-medium text-ink">{c.strongest.label}</span>
-            </span>
-            <span className="tnum ml-auto font-semibold text-emerald-600 dark:text-emerald-400">
-              {c.strongest.average.toFixed(1)}
-            </span>
-          </p>
-          {c.weakest && (
-            <p className="flex items-center gap-1.5 text-muted">
-              <Icon name="alert" size={12} className="text-amber-600 dark:text-amber-400" />
-              <span className="truncate">
-                Needs work: <span className="font-medium text-ink">{c.weakest.label}</span>
-              </span>
-              <span className="tnum ml-auto font-semibold text-amber-600 dark:text-amber-400">
-                {c.weakest.average.toFixed(1)}
-              </span>
-            </p>
-          )}
-        </div>
-      )}
-
-      {!hasData && (
-        <p className="mt-4 flex items-center gap-1.5 px-5 text-xs text-muted">
-          <Icon name="info" size={12} />
-          No feedback submitted yet
-        </p>
-      )}
-
-      {/* Footer */}
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-line px-5 py-3.5">
-        <span className="text-[11px] text-subtle">
-          {c.lastFeedbackAt ? `Last response ${timeAgo(c.lastFeedbackAt)}` : 'Awaiting responses'}
-        </span>
-        {/* The arrow nudges right on hover — a tiny directional cue that the
-            action takes you somewhere, on an element you only hover briefly. */}
-        <Link
-          to={`${basePath}/class/${c.id}`}
-          className="btn-primary !px-3.5 !py-1.5 text-xs"
-          aria-label={`View feedback for ${c.name}`}
-        >
-          View feedback
-          <Icon
-            name="chevronRight"
-            size={13}
-            className="transition-transform duration-200 ease-out-expo group-hover:translate-x-0.5"
-          />
-        </Link>
-      </div>
-    </article>
-  );
-}
-
-function Fact({ icon, label, value, highlight }) {
-  return (
-    <div className="rounded-xl bg-surface-2/60 px-2.5 py-2">
-      <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
-        <Icon name={icon} size={11} />
-        {label}
-      </p>
-      <p
-        className={`tnum mt-0.5 text-base font-bold ${
-          highlight ? 'text-emerald-600 dark:text-emerald-400' : 'text-ink'
-        }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
+const SORTS = [
+  { v: 'recent', label: 'Most recent' },
+  { v: 'rating', label: 'Highest rated' },
+  { v: 'lowest', label: 'Lowest rated' },
+  { v: 'responses', label: 'Most responses' },
+  { v: 'answered', label: 'Best answered %' },
+  { v: 'name', label: 'Batch name' },
+];
 
 export default function Feedbacks() {
   const { user } = useAuth();
@@ -184,173 +46,467 @@ export default function Feedbacks() {
   const isAdmin = user?.role === 'admin';
   const basePath = isAdmin ? '/admin' : '/trainer';
 
-  const [classes, setClasses] = useState(null);
+  const [params, setParams] = useSearchParams();
+  const year = params.get('year') || '';
+  const subject = params.get('subject') || '';
+  const role = params.get('role') || '';
+
+  const [data, setData] = useState(null);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState('recent');
 
   useEffect(() => {
+    let alive = true;
     (async () => {
       try {
-        setClasses(await AnalyticsAPI.classes());
+        const d = await AnalyticsAPI.sessions({
+          ...(year ? { yearGroup: year } : {}),
+          ...(subject ? { classId: subject } : {}),
+          ...(role ? { role } : {}),
+        });
+        if (alive) setData(d);
       } catch (e) {
-        toast.error(e.message);
-        setClasses([]);
+        if (alive) {
+          toast.error(e.message);
+          setData({ sessions: [], filters: { yearGroups: [], classes: [] } });
+        }
       }
     })();
-  }, [toast]);
+    return () => {
+      alive = false;
+    };
+  }, [toast, year, subject, role]);
+
+  const setParam = (key, value) => {
+    if (value) params.set(key, value);
+    else params.delete(key);
+    setParams(params, { replace: true });
+  };
 
   const shown = useMemo(() => {
-    if (!classes) return [];
+    const all = data?.sessions || [];
     const needle = q.trim().toLowerCase();
     const filtered = needle
-      ? classes.filter(
-          (c) =>
-            c.name.toLowerCase().includes(needle) ||
-            (c.trainer || '').toLowerCase().includes(needle)
+      ? all.filter(
+          (s) =>
+            s.batchName.toLowerCase().includes(needle) ||
+            s.className.toLowerCase().includes(needle) ||
+            s.dept.toLowerCase().includes(needle) ||
+            [...s.mainTrainerNames, ...s.supportTrainerNames]
+              .join(' ')
+              .toLowerCase()
+              .includes(needle)
         )
-      : classes;
+      : all;
 
-    const sorted = [...filtered];
-    if (sort === 'rating') sorted.sort((a, b) => b.average - a.average);
-    else if (sort === 'lowest') sorted.sort((a, b) => (a.average || 99) - (b.average || 99));
-    else if (sort === 'responses') sorted.sort((a, b) => b.responses - a.responses);
-    else sorted.sort((a, b) => new Date(b.lastFeedbackAt || 0) - new Date(a.lastFeedbackAt || 0));
-    return sorted;
-  }, [classes, q, sort]);
+    const out = [...filtered];
+    /* Unrated sessions sort LAST in every rating order rather than as zero —
+       "no responses yet" is not "rated badly", and letting a null masquerade
+       as 0.00 would put a brand-new batch at the bottom of a quality list. */
+    const byRating = (dir) => (a, b) => {
+      if (a.average == null && b.average == null) return a.batchName.localeCompare(b.batchName);
+      if (a.average == null) return 1;
+      if (b.average == null) return -1;
+      return dir * (a.average - b.average);
+    };
+    if (sort === 'rating') out.sort(byRating(-1));
+    else if (sort === 'lowest') out.sort(byRating(1));
+    else if (sort === 'responses') out.sort((a, b) => b.responses - a.responses);
+    else if (sort === 'answered')
+      out.sort((a, b) => (b.responseRate ?? -1) - (a.responseRate ?? -1));
+    else if (sort === 'name')
+      out.sort(
+        (a, b) => a.batchName.localeCompare(b.batchName) || a.className.localeCompare(b.className)
+      );
+    else
+      out.sort(
+        (a, b) => new Date(b.lastFeedbackAt || 0) - new Date(a.lastFeedbackAt || 0)
+      );
+    return out;
+  }, [data, q, sort]);
 
   const totals = useMemo(() => {
-    if (!classes?.length) return null;
-    const withData = classes.filter((c) => c.responses > 0);
-    const responses = classes.reduce((n, c) => n + c.responses, 0);
-    const avg = withData.length
-      ? withData.reduce((n, c) => n + c.average, 0) / withData.length
-      : 0;
-    return { classes: classes.length, responses, avg, open: classes.reduce((n, c) => n + c.openBatches, 0) };
-  }, [classes]);
+    const all = data?.sessions || [];
+    if (!all.length) return null;
+    const rated = all.filter((s) => s.average != null);
+    const responses = all.reduce((n, s) => n + s.responses, 0);
+    return {
+      sessions: all.length,
+      batches: new Set(all.map((s) => s.batchId)).size,
+      responses,
+      // Weighted, so a 140-student batch counts more than a 60-student one.
+      average: rated.length
+        ? rated.reduce((n, s) => n + s.average * s.responses, 0) /
+          (rated.reduce((n, s) => n + s.responses, 0) || 1)
+        : null,
+      open: all.filter((s) => s.status === 'open').length,
+    };
+  }, [data]);
+
+  const filters = data?.filters || { yearGroups: [], classes: [] };
+  const activeCount = [year, subject, role].filter(Boolean).length;
 
   return (
     <div className="space-y-5">
       <PageHeader
         eyebrow="Feedback"
-        title={isAdmin ? 'Class feedback' : 'My class feedback'}
+        title="Feedback by batch"
         subtitle={
           isAdmin
-            ? 'Every class with its rating so far. Open one to see each parameter, the trend and what students wrote.'
-            : 'The classes assigned to you. Open one to see each parameter, the trend and what your students wrote.'
+            ? 'Every batch and the subject it ran, with the mentors on it. Filter by year group to compare cohorts.'
+            : 'Every batch you are staffed on. Filter by year group, or by whether you delivered or assisted.'
         }
       />
 
-      {/* Summary strip */}
+      {/* ── Totals for the current filter ───────────────────────────────── */}
       {totals && (
-        <div className="panel animate-fade-up divide-y divide-line sm:grid sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-          <Summary label={isAdmin ? 'Classes' : 'My classes'} value={totals.classes} icon="book" />
-          <Summary label="Responses" value={totals.responses} icon="inbox" />
-          <Summary label="Open batches" value={totals.open} icon="unlock" />
-          <Summary
-            label="Average rating"
-            value={totals.avg ? totals.avg.toFixed(2) : '—'}
+        <div className="panel divide-y divide-line sm:grid sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+          <Fig label="Batches" value={totals.batches} icon="ticket" sub={`${totals.sessions} sessions`} />
+          <Fig label="Collecting now" value={totals.open} icon="unlock" />
+          <Fig label="Responses" value={totals.responses.toLocaleString()} icon="inbox" />
+          <Fig
+            label="Average"
+            value={totals.average == null ? '—' : totals.average.toFixed(2)}
             icon="star"
-            suffix={totals.avg ? '/ 5' : ''}
+            sub={totals.average == null ? 'no responses yet' : 'out of 5'}
           />
         </div>
       )}
 
-      {/* Controls — a search box and a sort. Deliberately nothing more. */}
-      {classes?.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[220px] flex-1">
+      {/* ── Filters ─────────────────────────────────────────────────────── */}
+      <div className="card p-3 sm:p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex items-center gap-1.5 pb-2.5 text-sm font-semibold text-ink">
+            <Icon name="filter" size={14} />
+            Filters
+            {activeCount > 0 && (
+              <span className="tnum grid h-4 min-w-4 place-items-center rounded-full bg-brand-600 px-1 text-[10px] font-bold text-white">
+                {activeCount}
+              </span>
+            )}
+            <InfoTooltip text="Year group and subject are applied on the server, so a mentor's own scoping always holds. Sorting and search are local to what you can already see." />
+          </div>
+
+          <Field label="Year group" id="fb-year">
+            <select
+              id="fb-year"
+              className="input"
+              value={year}
+              onChange={(e) => setParam('year', e.target.value)}
+            >
+              <option value="">All years</option>
+              {filters.yearGroups.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Subject" id="fb-subject">
+            <select
+              id="fb-subject"
+              className="input"
+              value={subject}
+              onChange={(e) => setParam('subject', e.target.value)}
+            >
+              <option value="">All subjects</option>
+              {filters.classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {/* Only a mentor holds two roles; for an admin this control would do
+              nothing, so it is not rendered. */}
+          {!isAdmin && (
+            <Field label="My role" id="fb-role">
+              <select
+                id="fb-role"
+                className="input"
+                value={role}
+                onChange={(e) => setParam('role', e.target.value)}
+              >
+                <option value="">Both roles</option>
+                <option value="main">Delivered (main)</option>
+                <option value="support">Assisted (support)</option>
+              </select>
+            </Field>
+          )}
+
+          <Field label="Sort" id="fb-sort">
+            <select
+              id="fb-sort"
+              className="input"
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+            >
+              {SORTS.map((s) => (
+                <option key={s.v} value={s.v}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="relative min-w-[200px] flex-1">
             <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-subtle">
               <Icon name="search" size={15} />
             </span>
             <label htmlFor="fb-search" className="sr-only">
-              Search classes
+              Search batches
             </label>
             <input
               id="fb-search"
               className="input pl-10"
-              placeholder={isAdmin ? 'Search class or trainer…' : 'Search your classes…'}
+              placeholder="Batch, subject, department or mentor…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          <label htmlFor="fb-sort" className="sr-only">
-            Sort classes
-          </label>
-          <select
-            id="fb-sort"
-            className="input w-auto"
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-          >
-            <option value="recent">Most recent</option>
-            <option value="rating">Highest rated</option>
-            <option value="lowest">Lowest rated</option>
-            <option value="responses">Most responses</option>
-          </select>
-          <span className="ml-auto text-xs text-muted">
-            <span className="tnum font-semibold text-ink">{shown.length}</span>{' '}
-            {shown.length === 1 ? 'class' : 'classes'}
-          </span>
-        </div>
-      )}
 
-      {/* Cards */}
-      {!classes ? (
+          {(activeCount > 0 || q) && (
+            <button
+              type="button"
+              className="btn-ghost !px-2.5 !py-2 text-xs"
+              onClick={() => {
+                setQ('');
+                setParams(new URLSearchParams(), { replace: true });
+              }}
+            >
+              <Icon name="x" size={13} />
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Cards ───────────────────────────────────────────────────────── */}
+      {!data ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonBlock key={i} height={280} className="rounded-2xl" />
+            <SkeletonBlock key={i} height={230} className="rounded-2xl" />
           ))}
         </div>
       ) : shown.length === 0 ? (
-        <div className="panel">
+        <Card>
           <EmptyState
-            icon={classes.length ? 'search' : 'book'}
-            title={classes.length ? 'No classes match that search' : 'No classes yet'}
-            hint={
-              classes.length
-                ? 'Try a different name, or clear the search.'
+            icon={data.sessions.length ? 'search' : 'inbox'}
+            title={
+              data.sessions.length
+                ? 'Nothing matches those filters'
                 : isAdmin
-                  ? 'Create a class and assign it to a trainer, then unlock a batch to start collecting feedback.'
-                  : 'No classes have been assigned to you yet. Your admin assigns classes to trainers.'
+                  ? 'No batches yet'
+                  : role === 'main'
+                    ? 'You are not the main mentor on any batch'
+                    : role === 'support'
+                      ? 'You are not a support mentor on any batch'
+                      : 'You are not staffed on any batch yet'
+            }
+            hint={
+              data.sessions.length
+                ? 'Try clearing the year group or subject.'
+                : isAdmin
+                  ? 'Create a batch, pick its subjects and assign mentors to each.'
+                  : 'An admin assigns mentors when they create a batch.'
             }
             action={
-              classes.length ? (
-                <button className="btn-outline" onClick={() => setQ('')}>
-                  Clear search
+              data.sessions.length ? (
+                <button
+                  className="btn-outline"
+                  onClick={() => {
+                    setQ('');
+                    setParams(new URLSearchParams(), { replace: true });
+                  }}
+                >
+                  Clear filters
                 </button>
               ) : isAdmin ? (
-                <Link to="/admin/classes" className="btn-primary">
-                  <Icon name="plus" size={15} /> Create a class
+                <Link to="/admin/batches" className="btn-primary">
+                  Go to Batches
                 </Link>
               ) : null
             }
           />
-        </div>
+        </Card>
       ) : (
-        <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {shown.map((c) => (
-            <ClassCard key={c.id} c={c} basePath={basePath} showTrainer={isAdmin} />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {shown.map((s, i) => (
+              <SessionCard key={s.id} s={s} basePath={basePath} delay={i * 25} />
+            ))}
+          </div>
+          <p className="text-center text-xs text-muted">
+            <span className="tnum font-semibold text-ink">{shown.length}</span> of{' '}
+            <span className="tnum">{data.sessions.length}</span> sessions
+          </p>
+        </>
       )}
     </div>
   );
 }
 
-function Summary({ label, value, icon, suffix }) {
+/* ── One session ────────────────────────────────────────────────────────── */
+
+function SessionCard({ s, basePath, delay }) {
+  const rated = s.average != null;
+
   return (
-    <div className="flex items-center gap-3 px-5 py-4">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-600 dark:text-brand-400">
-        <Icon name={icon} size={17} />
+    <Link
+      to={`${basePath}/batch/${s.batchId}`}
+      state={{ from: `${basePath}/feedbacks${window.location.search}` }}
+      style={{ animationDelay: `${delay}ms` }}
+      className="card animate-fade-up group flex flex-col overflow-hidden p-0 transition-shadow duration-200 hover:shadow-card-lg"
+    >
+      {/* shrink-0 so the strip keeps its exact height as the card grows — a
+          flex child with only h-1 is compressible, which made the rule look
+          thinner on taller cards. */}
+      <span
+        aria-hidden="true"
+        className={`block h-1 w-full shrink-0 ${
+          s.status === 'open' ? 'bg-emerald-500' : 'bg-line group-hover:bg-brand-500/40'
+        }`}
+      />
+
+      <span className="flex flex-1 flex-col p-4">
+        {/* Batch is the headline, subject the qualifier — you look for
+            "Industry Readiness Batch - 3", not for the subject. */}
+        <span className="flex items-start justify-between gap-2">
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-bold text-ink">{s.batchName}</span>
+            <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+              <span className="chip bg-surface-2 !py-0.5 text-[10px] font-semibold text-ink">
+                {s.className}
+              </span>
+              <span className="text-[11px] text-muted">{s.yearGroup}</span>
+            </span>
+          </span>
+          {s.status === 'open' ? (
+            <span className="chip-open shrink-0 !py-0.5 text-[10px]">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+              Live
+            </span>
+          ) : (
+            <span className="chip bg-surface-2 shrink-0 !py-0.5 text-[10px] text-muted">Locked</span>
+          )}
+        </span>
+
+        {s.dept && (
+          <span className="mt-1.5 block truncate text-[11px] text-subtle">{s.dept}</span>
+        )}
+
+        {/* Who taught it. The reason a card exists per batch rather than per
+            subject: these names differ between cohorts of the same subject. */}
+        <span className="mt-2.5 block">
+          <MentorRosterBadges
+            mainTrainerNames={s.mainTrainerNames}
+            supportTrainerNames={s.supportTrainerNames}
+          />
+        </span>
+
+        {/* My role on this session, for a mentor. */}
+        {s.myRoles?.length > 0 && (
+          <span className="mt-2 block text-[10px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+            You: {s.myRoles.map((r) => (r === 'main' ? 'main mentor' : 'support mentor')).join(' + ')}
+          </span>
+        )}
+
+        <span className="mt-auto block border-t border-line pt-3">
+          <span className="grid grid-cols-3 gap-2">
+            <Stat
+              value={rated ? s.average.toFixed(2) : '—'}
+              label={rated ? '★ average' : 'no rating'}
+              tone={rated ? (s.average >= 4 ? 'good' : s.average >= 3.5 ? 'warn' : 'bad') : 'muted'}
+            />
+            <Stat value={s.responses} label={s.responses === 1 ? 'response' : 'responses'} />
+            <Stat
+              value={s.responseRate == null ? '—' : `${s.responseRate}%`}
+              label="answered"
+              tone={
+                s.responseRate == null
+                  ? 'muted'
+                  : s.responseRate >= 60
+                    ? 'good'
+                    : s.responseRate >= 30
+                      ? 'warn'
+                      : 'bad'
+              }
+            />
+          </span>
+
+          {/* The one insight that makes a card worth reading rather than
+              just clicking through. */}
+          {rated && s.weakest && s.strongest && (
+            <span className="mt-2.5 block space-y-0.5 text-[11px]">
+              <span className="flex items-center justify-between gap-2">
+                <span className="truncate text-muted">Best: {s.strongest.label}</span>
+                <span className="tnum shrink-0 font-semibold text-emerald-700 dark:text-emerald-400">
+                  {s.strongest.average.toFixed(2)}
+                </span>
+              </span>
+              {s.weakest.label !== s.strongest.label && (
+                <span className="flex items-center justify-between gap-2">
+                  <span className="truncate text-muted">Weakest: {s.weakest.label}</span>
+                  <span className="tnum shrink-0 font-semibold text-amber-700 dark:text-amber-400">
+                    {s.weakest.average.toFixed(2)}
+                  </span>
+                </span>
+              )}
+            </span>
+          )}
+
+          <span className="mt-2.5 flex items-center gap-1 text-[11px] font-semibold text-muted group-hover:text-ink">
+            View feedback
+            <Icon name="chevronRight" size={12} />
+          </span>
+        </span>
+      </span>
+    </Link>
+  );
+}
+
+function Stat({ value, label, tone }) {
+  const cls =
+    tone === 'good'
+      ? 'text-emerald-700 dark:text-emerald-400'
+      : tone === 'warn'
+        ? 'text-amber-700 dark:text-amber-400'
+        : tone === 'bad'
+          ? 'text-rose-700 dark:text-rose-400'
+          : tone === 'muted'
+            ? 'text-subtle'
+            : 'text-ink';
+  return (
+    <span className="block">
+      <span className={`tnum block text-sm font-bold leading-tight ${cls}`}>{value}</span>
+      <span className="block truncate text-[10px] text-muted">{label}</span>
+    </span>
+  );
+}
+
+function Field({ label, id, children }) {
+  return (
+    <div className="flex min-w-[140px] flex-col gap-1">
+      <label htmlFor={id} className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function Fig({ label, value, sub, icon }) {
+  return (
+    <div className="flex items-start gap-3 p-4">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-muted">
+        <Icon name={icon} size={15} />
       </span>
       <div className="min-w-0">
-        <p className="tnum flex items-baseline gap-1 text-display-sm leading-none text-ink">
-          {value}
-          {suffix && <span className="text-xs font-medium text-subtle">{suffix}</span>}
-        </p>
-        <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
-          {label}
-        </p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>
+        <p className="tnum mt-0.5 text-xl font-bold text-ink">{value}</p>
+        {sub && <p className="mt-0.5 truncate text-[11px] text-subtle">{sub}</p>}
       </div>
     </div>
   );

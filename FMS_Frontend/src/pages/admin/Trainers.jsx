@@ -74,7 +74,17 @@ const PER_PAGE = 10;
 
 /* Fields a trainer row can be matched on. Kept beside the page (not inline)
    so the reference is stable and useSearchFilter's memo actually holds. */
-const TRAINER_FIELDS = (t) => [t.name, t.email, t.isActive ? 'active' : 'disabled'];
+/* Searchable fields. `deployment` is included as plain words so typing
+   "support" or "unassigned" filters the roster by how a mentor is actually
+   deployed — the question an admin asks when staffing a new batch. */
+const TRAINER_FIELDS = (t) => [
+  t.name,
+  t.shortName,
+  t.email,
+  t.phone,
+  t.deployment,
+  t.isActive ? 'active' : 'disabled inactive',
+];
 
 export default function Trainers() {
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -86,7 +96,13 @@ export default function Trainers() {
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    try { setTrainers(await TrainersAPI.list()); } catch (e) { toast.error(e.message); }
+    try {
+      // Paginated now; ask for a wide window and keep the existing
+      // client-side search over it. `archived: 'all'` so deactivated
+      // mentors stay visible and can be reactivated.
+      const res = await TrainersAPI.list({ limit: 200, archived: 'all' });
+      setTrainers(res.trainers);
+    } catch (e) { toast.error(e.message); }
   };
   useEffect(() => { load(); }, []); // eslint-disable-line
 
@@ -111,14 +127,59 @@ export default function Trainers() {
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
 
+  /* Reset link. Shown in a modal rather than copied straight to the clipboard:
+     it is a live credential, so the admin should see who it is for, that it is
+     single-use, and when it expires before passing it on. */
+  const [resetLink, setResetLink] = useState(null);
+  const [issuing, setIssuing] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const issueResetLink = async (t) => {
+    setIssuing(t._id);
+    try {
+      const r = await TrainersAPI.resetLink(t._id);
+      setResetLink(r);
+      setCopied(false);
+    } catch (err) {
+      toast.error(err.message || 'Could not create a reset link');
+    } finally {
+      setIssuing(null);
+    }
+  };
+
+  const copyResetLink = async () => {
+    try {
+      await navigator.clipboard.writeText(resetLink.resetUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be refused (insecure origin, permissions); the
+      // link is on screen and selectable, so this is not a dead end.
+      toast.error('Could not copy — select the link and copy it manually.');
+    }
+  };
+
   const toggleActive = async (t) => {
-    try { await TrainersAPI.update(t._id, { isActive: !t.isActive }); load(); }
-    catch (e) { toast.error(e.message); }
+    try {
+      await TrainersAPI.setActive(t._id, !t.isActive);
+      toast.success(t.isActive ? `${t.name} deactivated` : `${t.name} reactivated`);
+      load();
+    } catch (e) {
+      /* The server refuses to deactivate a mentor staffed on an OPEN batch and
+         names the batches in the message — pass it through verbatim rather
+         than flattening it to "could not update", because the message is the
+         actionable part. */
+      toast.error(e.message);
+    }
   };
 
   const isCreate = modal === 'create';
   const activeCount = trainers?.filter((t) => t.isActive).length ?? 0;
+  /* Total staffed slots across live batches, both roles. The old figure counted
+     catalog ownership (Class.trainer), which understated every mentor staffed
+     per batch and ignored support work entirely. */
   const classTotal = trainers?.reduce((n, t) => n + (t.classCount || 0), 0) ?? 0;
+  const unassignedCount = trainers?.filter((t) => t.isActive && !t.classCount).length ?? 0;
   const shown = useSearchFilter(trainers, query, TRAINER_FIELDS);
   const pg = usePagination(shown, PER_PAGE, query);
   const newTrainerBtn = (
@@ -152,6 +213,17 @@ export default function Trainers() {
       >
         <Icon name="pencil" size={14} /> Edit
       </button>
+      {t.isActive && (
+        <button
+          className="btn-ghost !px-2.5 !py-1.5 text-xs"
+          onClick={() => issueResetLink(t)}
+          disabled={issuing === t._id}
+          aria-label={`Create a password reset link for ${t.name}`}
+          title="Create a single-use password reset link you can pass on directly. Works even when email is not configured."
+        >
+          <Icon name="link" size={14} /> {issuing === t._id ? 'Creating…' : 'Reset link'}
+        </button>
+      )}
       {t.isActive ? (
         <button
           className="btn-ghost !px-2.5 !py-1.5 text-xs text-rose-600 hover:!bg-rose-500/10 hover:!text-rose-700 dark:text-rose-400"
@@ -277,8 +349,8 @@ export default function Trainers() {
                     <th scope="col" className="th">Email</th>
                     <th scope="col" className="th">
                       <span className="inline-flex items-center gap-1.5">
-                        Classes
-                        <InfoTooltip text="How many classes this trainer currently owns. Each class is assigned to exactly one trainer." />
+                        Deployment
+                        <InfoTooltip text="How this mentor is staffed across live batches. Main = classes they deliver; Support = classes they assist on. A person can hold either role, or both, on different classes." />
                       </span>
                     </th>
                     <th scope="col" className="th">Status</th>
@@ -295,7 +367,9 @@ export default function Trainers() {
                         </div>
                       </td>
                       <td className="td text-muted">{t.email}</td>
-                      <td className="td tnum">{t.classCount}</td>
+                      <td className="td">
+                        <DeploymentCell t={t} />
+                      </td>
                       <td className="td"><StatusChip active={t.isActive} /></td>
                       <td className="td">
                         <div className="flex justify-end gap-1">
@@ -389,5 +463,53 @@ export default function Trainers() {
       </Modal>
       <BulkUploadTrainers open={bulkOpen} onClose={() => setBulkOpen(false)} onImported={load} />
     </div>
+  );
+}
+
+/**
+ * A mentor's staffing at a glance: how many classes they deliver vs assist on.
+ *
+ * Two counts rather than one total, because they are different kinds of work
+ * and the roster is read to answer "who is free to lead something?" — a total
+ * of 8 hides whether that is eight classes taught or eight assisted.
+ * "Unassigned" is called out rather than shown as 0/0: several people on the
+ * roster genuinely have no sessions yet, and that is the actionable state.
+ */
+function DeploymentCell({ t }) {
+  const main = t.mainClassCount || 0;
+  const support = t.supportClassCount || 0;
+
+  if (!main && !support) {
+    return (
+      <span
+        className="chip bg-surface-2 text-muted"
+        title="Not staffed on any live batch. Assign them when creating or editing a batch."
+      >
+        Unassigned
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      {main > 0 && (
+        <span
+          className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-700 dark:bg-brand-500/15 dark:text-brand-300"
+          title={`Delivers ${main} class${main === 1 ? '' : 'es'} across ${t.mainBatchCount || 0} batch${(t.mainBatchCount || 0) === 1 ? '' : 'es'}`}
+        >
+          <Icon name="user-check" size={10} />
+          <span className="tnum">{main}</span> main
+        </span>
+      )}
+      {support > 0 && (
+        <span
+          className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
+          title={`Assists on ${support} class${support === 1 ? '' : 'es'} across ${t.supportBatchCount || 0} batch${(t.supportBatchCount || 0) === 1 ? '' : 'es'}`}
+        >
+          <Icon name="users" size={10} />
+          <span className="tnum">{support}</span> support
+        </span>
+      )}
+    </span>
   );
 }

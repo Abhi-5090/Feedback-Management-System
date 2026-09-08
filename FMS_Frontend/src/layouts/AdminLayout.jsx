@@ -4,8 +4,9 @@ import AppShell from './AppShell.jsx';
 const nav = [
   { to: '/admin', label: 'Dashboard', icon: 'dashboard', end: true },
   { to: '/admin/feedbacks', label: 'Feedbacks', icon: 'message' },
-  { to: '/admin/trainers', label: 'Trainers', icon: 'users' },
+  { to: '/admin/trainers', label: 'Mentors', icon: 'users' },
   { to: '/admin/compare', label: 'Compare', icon: 'barChart' },
+  { to: '/admin/cohorts', label: 'Cohorts', icon: 'graduation' },
   { to: '/admin/classes', label: 'Classes', icon: 'book' },
   { to: '/admin/parameters', label: 'Parameters', icon: 'sliders' },
   { to: '/admin/batches', label: 'Batches', icon: 'ticket' },

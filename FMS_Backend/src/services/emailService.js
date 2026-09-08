@@ -41,6 +41,41 @@ function getTransport() {
   return transporter;
 }
 
+/**
+ * Warn ONCE, at boot, when mail cannot actually be delivered.
+ *
+ * The console fallback is right for development and dangerous in production:
+ * password reset silently stops working, and because /forgot-password always
+ * answers "a reset link is on its way" (it must, or it becomes an
+ * account-enumeration oracle), nobody finds out until a user says they never
+ * got the mail. This makes the deployment state impossible to miss in the logs.
+ */
+export function warnIfMailUnconfigured() {
+  if (isTest) return;
+  if (env.smtp.host && env.smtp.user) {
+    console.log(`[mail] SMTP configured — ${env.smtp.host}:${env.smtp.port} as ${env.smtp.user}`);
+    return;
+  }
+  const lines = [
+    '',
+    '  ┌─────────────────────────────────────────────────────────────────┐',
+    '  │  EMAIL IS NOT CONFIGURED — no mail will be delivered.           │',
+    '  │                                                                 │',
+    '  │  Password-reset links and welcome mail are PRINTED HERE only.    │',
+    '  │  /forgot-password still answers "a link is on its way" — it      │',
+    '  │  must, so it cannot be used to discover which emails exist —     │',
+    '  │  so users will wait for mail that was never sent.                │',
+    '  │                                                                 │',
+    '  │  Set SMTP_HOST, SMTP_USER and SMTP_PASS in .env.                 │',
+    '  │  Verify with: POST /api/system/mail/test  (admin)                │',
+    '  │  Meanwhile, an admin can hand out a reset link directly from     │',
+    '  │  the Mentors page.                                               │',
+    '  └─────────────────────────────────────────────────────────────────┘',
+    '',
+  ];
+  console.warn(isProd ? lines.join('\n') : '[mail] not configured — messages are printed to this console only');
+}
+
 /** Which transport is active — surfaced in Settings so an admin can see it. */
 export function mailStatus() {
   if (env.smtp.host && env.smtp.user) return { mode: 'smtp', host: env.smtp.host, configured: true };
@@ -60,24 +95,28 @@ export async function sendMail({ to, subject, html, text }) {
   try {
     if (isTest) {
       sentMail.push(message);
-      return { ok: true, mode: 'test' };
+      return { ok: true, mode: 'test', delivered: true };
     }
 
     const t = getTransport();
     if (t) {
-      await t.sendMail(message);
-      return { ok: true, mode: 'smtp' };
+      const info = await t.sendMail(message);
+      return { ok: true, mode: 'smtp', delivered: true, messageId: info?.messageId };
     }
 
     // Console fallback — print enough to complete the flow by hand.
     console.log(
-      `\n──── EMAIL (no SMTP configured) ────\n To: ${to}\n Subject: ${subject}\n\n${message.text}\n────────────────────────────────────\n`
+      `\n──── EMAIL (no SMTP configured — NOT SENT) ────\n To: ${to}\n Subject: ${subject}\n\n${message.text}\n───────────────────────────────────────────────\n`
     );
-    return { ok: true, mode: 'console' };
+    /* ok:true because the CALLER should not fail — a created trainer must not
+       be rolled back over mail. `delivered:false` is the honest part, and lets
+       an admin-facing response say "printed to the server log, not emailed"
+       instead of implying it was sent. */
+    return { ok: true, mode: 'console', delivered: false };
   } catch (err) {
     // Never surface delivery failure to the caller's happy path.
     console.error('[mail] delivery failed:', err.message);
-    return { ok: false, error: err.message };
+    return { ok: false, delivered: false, error: err.message };
   }
 }
 

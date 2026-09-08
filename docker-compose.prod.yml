@@ -1,0 +1,100 @@
+# ── Production overlay ───────────────────────────────────────────────────────
+# Used WITH the base file, which it overrides:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# What this changes versus the base (demo) file:
+#   - every secret comes from the environment, never the file;
+#   - Mongo stops publishing 27017 to the host;
+#   - the API stops publishing 5000 — only the web container reaches it;
+#   - Secure cookies are ON, so the deployment MUST terminate TLS;
+#   - containers restart on failure and are memory-capped;
+#   - the seed admin password is required rather than defaulted.
+#
+# Required environment (put them in a .env file next to this one, or export
+# them — compose reads ./.env automatically and it is gitignored):
+#
+#   JWT_SECRET=$(openssl rand -hex 32)
+#   DEVICE_SALT=$(openssl rand -hex 32)     # KEEP STABLE FOREVER
+#   MONGO_URI=mongodb://mongo:27017/fms?replicaSet=rs0
+#   PUBLIC_ORIGIN=https://feedback.example.edu
+#   SEED_ADMIN_EMAIL=admin@example.edu
+#   SEED_ADMIN_PASSWORD=<a strong password>
+#   SMTP_HOST=... SMTP_PORT=587 SMTP_USER=... SMTP_PASS=... SMTP_FROM=...
+#
+# TLS: this stack speaks plain HTTP on the `web` container's port 80. Terminate
+# TLS in front of it — a cloud load balancer, or Caddy/nginx with certbot on the
+# host — and forward to it. COOKIE_SECURE=true below means the browser will
+# refuse to send the auth cookie over plain HTTP, so the app simply will not log
+# anyone in until TLS is actually in place. That is deliberate: a silent
+# downgrade to insecure cookies is worse than a visible failure.
+
+services:
+  mongo:
+    # No host port: only other containers on this network reach the database.
+    ports: []
+    restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all", "--wiredTigerCacheSizeGB", "1"]
+    volumes:
+      - mongo-data:/data/db
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  api:
+    restart: unless-stopped
+    # No host port either — nginx in the `web` container proxies to it.
+    ports: []
+    environment:
+      NODE_ENV: production
+      PORT: "5000"
+      MONGO_URI: ${MONGO_URI:?set MONGO_URI}
+      # The boot guard refuses to start if either of these is missing, under 32
+      # characters, or a recognisable placeholder — so a misconfigured deploy
+      # fails loudly instead of running insecure.
+      JWT_SECRET: ${JWT_SECRET:?generate with openssl rand -hex 32}
+      DEVICE_SALT: ${DEVICE_SALT:?generate with openssl rand -hex 32}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      # TLS is terminated upstream, so Secure cookies are correct and required.
+      COOKIE_SECURE: "true"
+      CLIENT_ORIGINS: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN}
+      APP_URL: ${PUBLIC_ORIGIN}
+      APP_NAME: ${APP_NAME:-Feedback Management}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:?set SEED_ADMIN_EMAIL}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?set a strong SEED_ADMIN_PASSWORD}
+      # Without SMTP the mailer only PRINTS messages to the container log, which
+      # means password reset is effectively broken for real users.
+      SMTP_HOST: ${SMTP_HOST:?set SMTP_HOST so password reset works}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:?set SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS:?set SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM:-Feedback Management <no-reply@example.com>}
+      RESET_TOKEN_MINUTES: ${RESET_TOKEN_MINUTES:-30}
+      DIGESTS_ENABLED: ${DIGESTS_ENABLED:-true}
+      # Student endpoints are keyed on the per-device cookie, so these are
+      # per-browser budgets — a whole classroom behind one NAT is not throttled
+      # as a single client. PUBLIC_IP_MAX is the wider per-IP backstop.
+      PUBLIC_MAX_PER_DEVICE: ${PUBLIC_MAX_PER_DEVICE:-20}
+      PUBLIC_IP_MAX: ${PUBLIC_IP_MAX:-600}
+      LOGIN_MAX_PER_IDENTITY: ${LOGIN_MAX_PER_IDENTITY:-20}
+      LOGIN_IP_MAX: ${LOGIN_IP_MAX:-300}
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  web:
+    restart: unless-stopped
+    ports:
+      # Bind to localhost only: the TLS terminator in front forwards here.
+      # Publishing 0.0.0.0:80 would expose the app over plain HTTP, where the
+      # Secure auth cookie is dropped and nobody can sign in anyway.
+      - "127.0.0.1:8080:80"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+volumes:
+  mongo-data:

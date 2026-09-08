@@ -18,7 +18,7 @@ import VolumeBarChart from '../../components/charts/VolumeBarChart.jsx';
 function DashboardSkeleton() {
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
         {Array.from({ length: 6 }).map((_, i) => (
           <SkeletonBlock key={i} height={104} className="rounded-2xl" />
         ))}
@@ -86,13 +86,13 @@ export default function AdminDashboard() {
       ) : (
         <>
           {/* KPI tiles — every one carries a tooltip so the dashboard teaches itself */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <StatTile label="Trainers" value={k.trainers} icon="users" accent="violet" delay={0}
-              hint="People who teach classes. Each can view feedback for their own classes only." />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+            <StatTile label="Mentors" value={k.trainers} icon="users" accent="violet" delay={0}
+              hint="Active mentors. Each sees feedback only for sessions they are staffed on, as main or support." />
             <StatTile label="Classes" value={k.classes} icon="book" accent="sky" delay={40}
-              hint="Training subjects, each assigned to exactly one trainer." />
+              hint="Training subjects. Staffing is decided per batch, so the same subject can run with different mentor teams for different cohorts." />
             <StatTile label="Batches" value={k.batches} icon="ticket" accent="brand" delay={80}
-              hint="Cohorts of a class. Each batch owns its passcode and open/closed window." />
+              hint="Cohorts. Each batch spans several subjects, owns its passcode, and has its own open/closed window." />
             <StatTile label="Open now" value={k.openBatches} icon="unlock" accent="emerald" delay={120}
               hint="Batches currently accepting feedback (unlocked window)." />
             <StatTile label="Feedback" value={k.feedbackCount} icon="inbox" accent="amber" delay={160}
@@ -100,6 +100,18 @@ export default function AdminDashboard() {
             <StatTile label="Avg rating" value={k.overallAverage.toFixed(2)} icon="star" accent="rose" delay={200}
               sub="out of 5"
               hint="Mean of every star given across all rated parameters." />
+            {/* A raw feedback count cannot tell you whether a survey landed.
+                812 responses is excellent from 900 students and poor from
+                1,740 — so the rate is shown alongside the total. */}
+            <StatTile
+              label="Response rate"
+              value={`${k.responseRate ?? 0}%`}
+              icon="activity"
+              accent="teal"
+              delay={240}
+              sub={`${k.submittedResponses ?? 0} of ${k.expectedResponses ?? 0}`}
+              hint="Students who have responded, against the expected cohort sizes of every batch with a cap set. This is the number that tells you whether a survey actually reached people."
+            />
           </div>
 
           {/* Charts */}

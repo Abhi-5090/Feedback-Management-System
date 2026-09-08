@@ -11,13 +11,17 @@ import { asyncHandler } from '../utils/asyncHandler.js';
  * to the browser to filter would not survive a demo, let alone production.
  */
 export const listAudit = asyncHandler(async (req, res) => {
-  const page = Math.max(1, parseInt(req.query.page || '1', 10));
-  const limit = Math.min(100, Math.max(5, parseInt(req.query.limit || '25', 10)));
+  /* Query is validated by auditQuerySchema on the route, so these arrive as
+     coerced numbers and pattern-checked strings. They are still assigned as
+     scalars only — a value that reached a Mongo filter as an OBJECT would turn
+     an equality match into an operator (`?action[$ne]=x`), which is why the
+     schema constrains the shape rather than merely the length. */
+  const { page, limit } = req.query;
 
   const filter = {};
-  if (req.query.action) filter.action = req.query.action;
-  if (req.query.entity) filter.entity = req.query.entity;
-  if (req.query.actor) filter.actor = req.query.actor;
+  if (req.query.action) filter.action = String(req.query.action);
+  if (req.query.entity) filter.entity = String(req.query.entity);
+  if (req.query.actor) filter.actor = String(req.query.actor);
 
   if (req.query.from || req.query.to) {
     filter.createdAt = {};

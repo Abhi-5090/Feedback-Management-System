@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BatchesAPI, ClassesAPI, TrainersAPI } from '../../api/endpoints.js';
+import MentorRosterPicker, { MentorRosterBadges } from '../../components/MentorRosterPicker.jsx';
 import { usePolling } from '../../hooks/usePolling.js';
 import { useToast } from '../../components/Toast.jsx';
 import Card, { EmptyState } from '../../components/Card.jsx';
@@ -146,13 +147,19 @@ function StatusChip({ open }) {
   );
 }
 
-/* Searchable fields for a batch row. A batch now spans several classes, so all
-   of their names and trainers are searchable. Status is included as plain words
-   so typing "open" filters to live cohorts without a separate status control. */
+/* Searchable fields for a batch row. A batch spans several classes, each with a
+   MAIN and SUPPORT roster, so every one of those names is searchable — an admin
+   looking for "what is Sampath on?" should find it by typing the name, in
+   either role. Year group and department are searchable for the same reason.
+   Status is included as plain words so typing "open" filters to live cohorts
+   without a separate control. */
 const BATCH_FIELDS = (b) => [
   b.name,
+  b.yearGroup,
+  b.dept,
   ...(b.classes || []).map((c) => c?.name),
-  ...(b.classes || []).map((c) => c?.trainer?.name),
+  ...(b.classes || []).flatMap((c) => c?.mainTrainerNames || []),
+  ...(b.classes || []).flatMap((c) => c?.supportTrainerNames || []),
   b.status,
   b.status === 'open' ? 'open live accepting' : 'locked closed',
 ];
@@ -164,9 +171,14 @@ export default function Batches() {
   const [classes, setClasses] = useState([]);
   const [trainers, setTrainers] = useState([]);
   const [createModal, setCreateModal] = useState(false);
-  // classes: [{ class: id, trainer: id }] — trainer defaults to the class's
-  // catalog trainer but is overridable per batch.
-  const [form, setForm] = useState({ classes: [], name: '', expectedCount: 30 });
+  /* classes: [{ class: id, mainTrainers: [id], supportTrainers: [id] }].
+     Both rosters are per-batch: the same subject is staffed by different teams
+     for different cohorts, so this is the real source of truth rather than the
+     subject's catalog default. */
+  const [form, setForm] = useState({
+    classes: [], name: '', yearGroup: '', dept: '', expectedCount: 30,
+  });
+  const [yearGroups, setYearGroups] = useState([]);
   const [unlockModal, setUnlockModal] = useState(null); // batch
   const [expected, setExpected] = useState(30);
   const [reveal, setReveal] = useState(null); // { batch, passcode }
@@ -178,18 +190,31 @@ export default function Batches() {
   const classId = useId();
   const nameId = useId();
   const expectedId = useId();
+  const yearGroupId = useId();
+  const deptId = useId();
   const unlockExpectedId = useId();
 
   const load = useCallback(async () => {
-    try { setBatches(await BatchesAPI.list()); } catch (e) { toast.error(e.message); }
+    try {
+      // The endpoint paginates; the page requests a generous window and keeps
+      // its existing client-side search over it. `limit` is the server's cap.
+      const res = await BatchesAPI.list({ limit: 200 });
+      setBatches(res.batches);
+      setYearGroups(res.filters?.yearGroups || []);
+    } catch (e) {
+      toast.error(e.message);
+    }
   }, [toast]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [cls, trs] = await Promise.all([ClassesAPI.list(), TrainersAPI.list()]);
-        setClasses(cls);
-        setTrainers(trs.filter((t) => t.isActive !== false));
+        const [cls, trs] = await Promise.all([
+          ClassesAPI.list({ limit: 200 }),
+          TrainersAPI.list({ limit: 200, archived: 'live' }),
+        ]);
+        setClasses(cls.classes);
+        setTrainers(trs.trainers.filter((t) => t.isActive !== false));
       } catch (e) {
         toast.error(e.message);
       }
@@ -206,12 +231,13 @@ export default function Batches() {
   const studentLink = (b) => `${window.location.origin}/feedback/${b._id}`;
 
   const openCreate = () => {
-    setForm({ classes: [], name: '', expectedCount: 30 });
+    setForm({ classes: [], name: '', yearGroup: '', dept: '', expectedCount: 30 });
     setCreateModal(true);
   };
 
-  // Toggle a class in/out of the batch. Adding it defaults its trainer to the
-  // class's catalog trainer, which the admin can then override per batch.
+  /* Toggle a subject in/out of the batch. Adding it pre-fills the MAIN roster
+     with the subject's catalog default (if it has one) purely as a convenience —
+     the admin is expected to set the real team, and the server re-validates. */
   const toggleClass = (klass) =>
     setForm((f) => {
       const on = f.classes.some((e) => e.class === klass._id);
@@ -219,23 +245,42 @@ export default function Batches() {
         ...f,
         classes: on
           ? f.classes.filter((e) => e.class !== klass._id)
-          : [...f.classes, { class: klass._id, trainer: klass.trainer?._id || '' }],
+          : [
+              ...f.classes,
+              {
+                class: klass._id,
+                mainTrainers: klass.trainer?._id ? [klass.trainer._id] : [],
+                supportTrainers: [],
+              },
+            ],
       };
     });
 
-  const setClassTrainer = (classId, trainerId) =>
+  const setClassRoster = (classId, rosters) =>
     setForm((f) => ({
       ...f,
-      classes: f.classes.map((e) => (e.class === classId ? { ...e, trainer: trainerId } : e)),
+      classes: f.classes.map((e) => (e.class === classId ? { ...e, ...rosters } : e)),
     }));
 
   const create = async (e) => {
     e.preventDefault();
     if (!form.classes.length) return toast.error('Select at least one class.');
-    if (form.classes.some((e) => !e.trainer)) return toast.error('Pick a trainer for every selected class.');
+    // Name the offending subject rather than saying "some class" — with a
+    // dozen selected, a generic message means hunting for the empty one.
+    const unstaffed = form.classes.find((c) => !c.mainTrainers?.length);
+    if (unstaffed) {
+      const name = classes.find((c) => c._id === unstaffed.class)?.name || 'A selected class';
+      return toast.error(`${name} needs at least one main mentor.`);
+    }
     setBusy(true);
     try {
-      await BatchesAPI.create({ classes: form.classes, name: form.name, expectedCount: Number(form.expectedCount) });
+      await BatchesAPI.create({
+        classes: form.classes,
+        name: form.name,
+        yearGroup: form.yearGroup,
+        dept: form.dept,
+        expectedCount: Number(form.expectedCount),
+      });
       toast.success('Batch created'); setCreateModal(false); load();
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   };
@@ -391,17 +436,17 @@ export default function Batches() {
         ) : shown.length === 0 ? (
           <EmptyState
             title="No batches match that search"
-            hint={`Nothing matched “${query}”. Try a batch name, class, trainer, or “open”.`}
+            hint={`Nothing matched “${query}”. Try a batch name, year group, class, mentor, or “open”.`}
             icon={<Icon name="search" size={22} className="text-muted" />}
             action={<button className="btn-outline" onClick={() => setQuery('')}>Clear search</button>}
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[52rem] border-collapse text-sm">
+            <table className="w-full min-w-[62rem] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line bg-surface-2">
                   <th className="th text-left">Batch</th>
-                  <th className="th text-left">Classes</th>
+                  <th className="th text-left">Classes &amp; mentors</th>
                   <th className="th text-left">Status</th>
                   <th className="th text-left">
                     <span className="inline-flex items-center gap-1.5">
@@ -428,26 +473,48 @@ export default function Batches() {
                           >
                             <Icon name="ticket" size={15} />
                           </span>
-                          <span className="font-semibold text-ink">{b.name}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold text-ink">{b.name}</span>
+                            {/* Cohort placement, so a list of fourteen batches
+                                is readable without opening each one. */}
+                            {(b.yearGroup || b.dept) && (
+                              <span className="block truncate text-[11px] text-subtle">
+                                {[b.yearGroup, b.dept].filter(Boolean).join(' · ')}
+                              </span>
+                            )}
+                            {b.round > 1 && (
+                              <span
+                                className="mt-0.5 inline-flex items-center rounded bg-amber-500/15 px-1.5 text-[10px] font-bold text-amber-700 dark:text-amber-400"
+                                title={`This cohort has been reopened ${b.round} times. Each round collects a fresh set of responses.`}
+                              >
+                                Round {b.round}
+                              </span>
+                            )}
+                          </span>
                         </div>
                       </td>
                       <td className="td">
                         {(b.classes || []).length === 0 ? (
                           <span className="text-subtle">—</span>
                         ) : (
-                          <div className="flex flex-wrap gap-1">
+                          /* Subject + its mentor team on one line each. The
+                             team is the thing an admin scans this column for
+                             ("who is on GenAI for third year?"), so showing
+                             only class names would make them open every row. */
+                          <div className="space-y-1">
                             {b.classes.slice(0, 3).map((c) => (
-                              <span
-                                key={c._id}
-                                className="inline-flex items-center rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-ink"
-                                title={c.trainer?.name ? `${c.name} · ${c.trainer.name}` : c.name}
-                              >
-                                {c.name}
-                              </span>
+                              <div key={c.id} className="flex flex-wrap items-baseline gap-1.5">
+                                <span className="text-xs font-semibold text-ink">{c.name}</span>
+                                <MentorRosterBadges
+                                  mainTrainerNames={c.mainTrainerNames}
+                                  supportTrainerNames={c.supportTrainerNames}
+                                  compact
+                                />
+                              </div>
                             ))}
                             {b.classes.length > 3 && (
-                              <span className="inline-flex items-center rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted">
-                                +{b.classes.length - 3}
+                              <span className="inline-flex items-center rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
+                                +{b.classes.length - 3} more
                               </span>
                             )}
                           </div>
@@ -504,6 +571,7 @@ export default function Batches() {
                           )}
                           <Link
                             to={`/admin/batch/${b._id}`}
+          state={{ from: '/admin/batches' }}
                             className="btn-ghost !px-2.5 !py-1.5 text-xs"
                             aria-label={`View feedback for ${b.name}`}
                           >
@@ -576,25 +644,17 @@ export default function Batches() {
                           {c.trainer?.name && <span className="text-subtle"> · default {c.trainer.name}</span>}
                         </span>
                       </button>
-                      {/* Per-batch trainer for THIS class — defaults to the
-                          class's catalog trainer, overridable here. */}
+                      {/* Per-batch mentor team for THIS class: who delivers it
+                          and who assists. Both are multi-select because the
+                          real schedule has co-taught sessions. */}
                       {on && (
-                        <div className="flex items-center gap-2 px-2.5 pb-2 pl-9">
-                          <span className="shrink-0 text-[11px] font-medium text-muted">Trainer</span>
-                          <select
-                            className="input !h-8 !py-1 text-xs"
-                            value={entry.trainer}
-                            onChange={(e) => setClassTrainer(c._id, e.target.value)}
-                            aria-label={`Trainer for ${c.name}`}
-                          >
-                            <option value="" disabled>Select trainer</option>
-                            {trainers.map((t) => (
-                              <option key={t._id} value={t._id}>
-                                {t.name}
-                                {String(t._id) === String(c.trainer?._id) ? ' (default)' : ''}
-                              </option>
-                            ))}
-                          </select>
+                        <div className="px-2.5 pb-2.5 pl-9">
+                          <MentorRosterPicker
+                            trainers={trainers}
+                            mainTrainers={entry.mainTrainers || []}
+                            supportTrainers={entry.supportTrainers || []}
+                            onChange={(rosters) => setClassRoster(c._id, rosters)}
+                          />
                         </div>
                       )}
                     </div>
@@ -604,7 +664,7 @@ export default function Batches() {
             )}
             <p className="hint">
               <span className="tnum font-semibold text-ink">{form.classes.length}</span> selected · students
-              rate every selected class. Each class can have its own trainer for this batch.
+              rate every selected class. Each class carries its own main and support mentors for this batch.
             </p>
           </div>
           <div>
@@ -618,6 +678,43 @@ export default function Batches() {
               placeholder="FSD-Aug-2025"
             />
             <p className="hint">The passcode is derived from this name (e.g. “FSD Aug 2025” → stem “FA2”).</p>
+          </div>
+          {/* Cohort placement. Free text with suggestions from the batches
+              that already exist, so an institution's own naming ("Final Year",
+              "III Year") is preserved rather than forced into an enum. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="label" htmlFor={yearGroupId}>
+                Year group <span className="font-normal text-subtle">(optional)</span>
+              </label>
+              <input
+                id={yearGroupId}
+                className="input"
+                list={`${yearGroupId}-options`}
+                value={form.yearGroup}
+                onChange={(e) => setForm({ ...form, yearGroup: e.target.value })}
+                placeholder="First Year"
+              />
+              <datalist id={`${yearGroupId}-options`}>
+                {yearGroups.map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+              <p className="hint">Groups the dashboard and cohort roll-up.</p>
+            </div>
+            <div>
+              <label className="label" htmlFor={deptId}>
+                Department <span className="font-normal text-subtle">(optional)</span>
+              </label>
+              <input
+                id={deptId}
+                className="input"
+                value={form.dept}
+                onChange={(e) => setForm({ ...form, dept: e.target.value })}
+                placeholder="CSE - A, B"
+              />
+              <p className="hint">Free text — sections included.</p>
+            </div>
           </div>
           <div>
             <label className="label" htmlFor={expectedId}>Expected responses <span className="font-normal text-subtle">(class size)</span></label>

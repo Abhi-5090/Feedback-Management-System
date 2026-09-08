@@ -7,12 +7,18 @@ export default function TrainerClassFeedback() {
   const { classId } = useParams();
   // The API enforces that this trainer owns the class (403 otherwise).
   const fetcher = useCallback(() => AnalyticsAPI.class(classId), [classId]);
+  // basePath lets the year-group breakdown deep-link into each batch
+  // under the right role prefix.
   return (
     <ClassFeedbackView
       fetcher={fetcher}
+      // What to load. The view keys its effect on this, so changing the id
+      // refetches while an unstable fetcher identity cannot loop.
+      reloadKey={classId}
       exportPath={`/export/class/${classId}`}
       exportName="class_feedback"
-      backTo="/trainer"
+      backTo="/trainer/feedbacks"  /* fallback when there is no in-app history */
+      basePath="/trainer"
     />
   );
 }

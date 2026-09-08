@@ -1,5 +1,7 @@
 import { User } from '../models/User.js';
 import { Class } from '../models/Class.js';
+import { Batch } from '../models/Batch.js';
+import { escapeRegex } from '../services/analyticsService.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { hashPassword } from '../utils/password.js';
 import { conflict, notFound, badRequest } from '../utils/ApiError.js';
@@ -8,19 +10,26 @@ import {
   buildTrainerTemplate,
   MAX_ROWS,
 } from '../services/trainerImportService.js';
-import { sendMail, welcomeEmail } from '../services/emailService.js';
+import { sendMail, welcomeEmail, resetEmail } from '../services/emailService.js';
 import { env } from '../config/env.js';
 import { recordAudit } from '../services/auditService.js';
+import crypto from 'node:crypto';
+import { PasswordResetToken } from '../models/PasswordResetToken.js';
 
 // POST /api/trainers  (admin)
 export const createTrainer = asyncHandler(async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, phone, shortName } = req.body;
   const exists = await User.findOne({ email: email.toLowerCase() });
   if (exists) throw conflict('A user with this email already exists', 'EMAIL_TAKEN');
 
   const trainer = await User.create({
     name,
     email,
+    phone: (phone || '').trim(),
+    // Defaults to the first word of the full name, which is how the training
+    // board refers to people ("Bhargav", "Suneeta"). Stored rather than derived
+    // so an admin can correct the cases where it guesses wrong.
+    shortName: (shortName || String(name).trim().split(/\s+/)[0] || '').trim(),
     passwordHash: await hashPassword(password),
     role: 'trainer',
     // The admin chose this password, so it counts as issued: the trainer is
@@ -223,21 +232,128 @@ export const bulkCreateTrainers = asyncHandler(async (req, res) => {
   });
 });
 
-// GET /api/trainers  (admin) — includes a class count per trainer
-export const listTrainers = asyncHandler(async (_req, res) => {
-  const trainers = await User.find({ role: 'trainer' }).sort({ createdAt: -1 }).lean();
-  const counts = await Class.aggregate([
-    { $group: { _id: '$trainer', classes: { $sum: 1 } } },
+/**
+ * GET /api/trainers  (admin)
+ * Query: page, limit, q, archived (reused as active|inactive|all)
+ *
+ * Reports each mentor's REAL deployment: how many classes they deliver and how
+ * many they assist, counted from the batch rosters. The old version counted
+ * `Class.trainer` — catalog ownership — which now understates every mentor who
+ * is staffed per batch and misses support work entirely.
+ */
+export const listTrainers = asyncHandler(async (req, res) => {
+  const { page, limit, q } = req.query;
+  const state = req.query.archived; // 'live' → active, 'archived' → inactive
+
+  const filter = { role: 'trainer' };
+  if (state === 'live') filter.isActive = true;
+  else if (state === 'archived') filter.isActive = false;
+  if (q) {
+    const rx = new RegExp(escapeRegex(q), 'i');
+    filter.$or = [{ name: rx }, { email: rx }, { shortName: rx }, { phone: rx }];
+  }
+
+  const [trainers, total] = await Promise.all([
+    User.find(filter)
+      .sort({ name: 1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    User.countDocuments(filter),
   ]);
-  const byId = new Map(counts.map((c) => [String(c._id), c.classes]));
+
+  const ids = trainers.map((t) => t._id);
+
+  const [staffing, defaults] = await Promise.all([
+    ids.length
+      ? Batch.aggregate([
+          { $match: { archivedAt: null } },
+          { $unwind: '$classes' },
+          {
+            $facet: {
+              main: [
+                { $unwind: '$classes.mainTrainers' },
+                { $match: { 'classes.mainTrainers': { $in: ids } } },
+                {
+                  $group: {
+                    _id: '$classes.mainTrainers',
+                    classes: { $sum: 1 },
+                    batches: { $addToSet: '$_id' },
+                  },
+                },
+                { $project: { classes: 1, batches: { $size: '$batches' } } },
+              ],
+              support: [
+                { $unwind: '$classes.supportTrainers' },
+                { $match: { 'classes.supportTrainers': { $in: ids } } },
+                {
+                  $group: {
+                    _id: '$classes.supportTrainers',
+                    classes: { $sum: 1 },
+                    batches: { $addToSet: '$_id' },
+                  },
+                },
+                { $project: { classes: 1, batches: { $size: '$batches' } } },
+              ],
+            },
+          },
+        ])
+      : [],
+    // Subjects naming this person as their default mentor — shown so an admin
+    // knows what a deactivation would leave unstaffed.
+    ids.length
+      ? Class.aggregate([
+          { $match: { archivedAt: null, trainer: { $in: ids } } },
+          { $group: { _id: '$trainer', classes: { $sum: 1 } } },
+        ])
+      : [],
+  ]);
+
+  const facet = staffing[0] || { main: [], support: [] };
+  const mainBy = new Map(facet.main.map((x) => [String(x._id), x]));
+  const suppBy = new Map(facet.support.map((x) => [String(x._id), x]));
+  const defaultBy = new Map(defaults.map((x) => [String(x._id), x.classes]));
+
   res.json({
-    trainers: trainers.map((t) => ({ ...t, classCount: byId.get(String(t._id)) || 0 })),
+    trainers: trainers.map((t) => {
+      const id = String(t._id);
+      const m = mainBy.get(id) || { classes: 0, batches: 0 };
+      const sp = suppBy.get(id) || { classes: 0, batches: 0 };
+      return {
+        ...t,
+        mainClassCount: m.classes,
+        mainBatchCount: m.batches,
+        supportClassCount: sp.classes,
+        supportBatchCount: sp.batches,
+        // Kept for compatibility with anything still reading a single number.
+        classCount: m.classes + sp.classes,
+        defaultForClasses: defaultBy.get(id) || 0,
+        deployment:
+          m.classes && sp.classes
+            ? 'Main + Support'
+            : m.classes
+              ? 'Main'
+              : sp.classes
+                ? 'Support'
+                : 'Unassigned',
+      };
+    }),
+    page,
+    limit,
+    total,
+    pages: Math.max(1, Math.ceil(total / limit)),
   });
 });
 
-// PATCH /api/trainers/:id  (admin) — edit / activate / deactivate
+/**
+ * PATCH /api/trainers/:id  (admin) — edit / activate / deactivate
+ *
+ * Deactivating is the closest thing to deleting a mentor: their account stops
+ * working, but their name stays on every past session so the historical record
+ * and the audit trail remain readable. A hard delete would orphan feedback.
+ */
 export const updateTrainer = asyncHandler(async (req, res) => {
-  const { name, email, password, isActive } = req.body;
+  const { name, email, password, phone, shortName, isActive } = req.body;
   const trainer = await User.findOne({ _id: req.params.id, role: 'trainer' });
   if (!trainer) throw notFound('Trainer not found');
 
@@ -247,9 +363,129 @@ export const updateTrainer = asyncHandler(async (req, res) => {
     trainer.email = email;
   }
   if (name !== undefined) trainer.name = name;
+  if (phone !== undefined) trainer.phone = phone;
+  if (shortName !== undefined) trainer.shortName = shortName;
+
+  // Refuse to deactivate someone an OPEN batch still depends on, and name the
+  // batches. Silently deactivating a mentor mid-collection leaves live sessions
+  // attributed to a disabled account and no hint as to why.
+  if (isActive === false && trainer.isActive) {
+    const openStaffing = await Batch.find({
+      status: 'open',
+      archivedAt: null,
+      $or: [
+        { 'classes.mainTrainers': trainer._id },
+        { 'classes.supportTrainers': trainer._id },
+      ],
+    })
+      .select('name')
+      .lean();
+    if (openStaffing.length) {
+      throw badRequest(
+        `${trainer.name} is staffed on open batches — lock these first: ${openStaffing
+          .map((b) => b.name)
+          .join(', ')}`,
+        'TRAINER_IN_OPEN_BATCH'
+      );
+    }
+  }
   if (typeof isActive === 'boolean') trainer.isActive = isActive;
-  if (password) trainer.passwordHash = await hashPassword(password);
+
+  if (password) {
+    trainer.passwordHash = await hashPassword(password);
+    // An admin-issued password is a starting credential, not a chosen one.
+    trainer.mustChangePassword = true;
+    // Revoke every session minted under the old password. Without this an
+    // admin resetting a compromised account leaves the attacker's 7-day token
+    // working, which defeats the point of the reset.
+    trainer.tokenVersion = (trainer.tokenVersion || 0) + 1;
+  }
 
   await trainer.save();
+
+  recordAudit(req, {
+    action: 'trainer.update',
+    entity: 'trainer',
+    entityId: trainer._id,
+    entityName: trainer.name,
+    meta: {
+      passwordReset: Boolean(password),
+      ...(typeof isActive === 'boolean' ? { isActive } : {}),
+    },
+  });
+
   res.json({ trainer });
+});
+
+/**
+ * POST /api/trainers/:id/reset-link  (admin)
+ *
+ * Mints a single-use password-reset link and RETURNS it, for the admin to pass
+ * on directly.
+ *
+ * Why this exists: /forgot-password depends on email, and email is the part of
+ * a deployment most likely to be missing or misconfigured. When it is, that
+ * endpoint still answers "a link is on its way" — it has to, or it becomes an
+ * oracle for which addresses are registered — so a mentor who cannot receive
+ * mail has no route back into their account and no way to know why. This gives
+ * the admin a way to unblock them in person, over the phone, or on WhatsApp.
+ *
+ * The grant is the SAME kind /forgot-password issues: hashed at rest, expires
+ * in RESET_TOKEN_MINUTES, single-use, and it invalidates any earlier grant.
+ * Handing out a URL is no weaker than emailing one — arguably stronger, since
+ * it never sits in an inbox — but it IS a credential, so the act is audited
+ * with the actor's name.
+ */
+export const issueResetLink = asyncHandler(async (req, res) => {
+  const trainer = await User.findOne({ _id: req.params.id, role: 'trainer' });
+  if (!trainer) throw notFound('Trainer not found');
+  if (!trainer.isActive) {
+    throw badRequest('That account is deactivated — reactivate it first.', 'INACTIVE');
+  }
+
+  // Any link issued earlier stops working, so two outstanding links can never
+  // both be live.
+  await PasswordResetToken.updateMany(
+    { user: trainer._id, usedAt: null },
+    { usedAt: new Date() }
+  );
+
+  const raw = crypto.randomBytes(32).toString('hex');
+  await PasswordResetToken.create({
+    user: trainer._id,
+    tokenHash: crypto.createHash('sha256').update(raw).digest('hex'),
+    expiresAt: new Date(Date.now() + env.resetTokenMinutes * 60_000),
+    requestedIp: req.ip || '',
+  });
+
+  const url = `${env.appUrl}/reset-password?token=${raw}`;
+
+  // Try to email it as well, so the normal path still happens when it works.
+  const mail = resetEmail({
+    name: trainer.name,
+    resetUrl: url,
+    minutes: env.resetTokenMinutes,
+  });
+  const delivery = await sendMail({ to: trainer.email, ...mail });
+
+  recordAudit(req, {
+    action: 'trainer.reset_link',
+    entity: 'trainer',
+    entityId: trainer._id,
+    entityName: trainer.name,
+    // The link itself is NEVER audited — an audit log is not a place to store
+    // live credentials.
+    meta: { emailed: Boolean(delivery.delivered), minutes: env.resetTokenMinutes },
+  });
+
+  res.json({
+    ok: true,
+    trainer: { id: String(trainer._id), name: trainer.name, email: trainer.email },
+    resetUrl: url,
+    expiresInMinutes: env.resetTokenMinutes,
+    emailed: Boolean(delivery.delivered),
+    notice: delivery.delivered
+      ? `Emailed to ${trainer.email}. The link is single-use and expires in ${env.resetTokenMinutes} minutes.`
+      : `Email is not configured, so nothing was sent. Copy this link to ${trainer.name} yourself — it is single-use and expires in ${env.resetTokenMinutes} minutes.`,
+  });
 });

@@ -99,44 +99,68 @@ const dataCell = (text, align = 'center') => ({ text: String(text ?? ''), alignm
  */
 export async function buildPdf(report) {
   const printer = await getPrinter();
-  const paramLabels = report.parameters.map((p) => p.label);
+  const paramLabels = (report.parameters || []).map((p) => p.label);
 
   // ── Summary table: Parameter | Average | Responses (all single-line) ─────
   const summaryBody = [
     [headerCell('Parameter'), headerCell('Average (1-5)'), headerCell('Responses')],
-    ...report.summary.map((r) => [
+    ...(report.summary || []).map((r) => [
       dataCell(r.label, 'left'),
       dataCell(fmt(r.average)),
       dataCell(r.responses),
     ]),
   ];
 
-  // ── Detail ratings table: Class | Batch | [params] | Avg | Submitted ─────
+  /* ── Detail ratings table ─────────────────────────────────────────────────
+     Year | Batch | Class | Main | Support | [params] | Avg | Submitted
+
+     Mentor columns are on the row because a session is co-taught: a printed
+     sheet is the artifact people actually circulate in a review meeting, and
+     "who was in the room" cannot be recovered from a class name. Kept to two
+     narrow columns (comma-joined names) so the landscape A4 still fits the
+     eight parameter columns without shrinking the type. */
   const detailHeader = [
-    headerCell('Class'),
+    headerCell('Year'),
     headerCell('Batch'),
+    headerCell('Class'),
+    headerCell('Main mentor(s)'),
+    headerCell('Support mentor(s)'),
     ...paramLabels.map((l) => headerCell(l)),
     headerCell('Avg'),
     headerCell('Submitted'),
   ];
   const detailBody = [
     detailHeader,
-    ...report.rows.map((r) => [
+    ...(report.rows || []).map((r) => [
+      dataCell(r.yearGroup || '—'),
+      dataCell(r.batchName, 'left'),
       dataCell(r.className, 'left'),
-      dataCell(r.batchName),
+      dataCell(r.mainMentors || '—', 'left'),
+      dataCell(r.supportMentors || '—', 'left'),
       ...paramLabels.map((l) => dataCell(r[l] === '' || r[l] == null ? '—' : r[l])),
       dataCell(fmt(r.average)),
       dataCell(fmtDate(r.submittedAt)),
     ]),
   ];
-  const detailWidths = ['auto', 'auto', ...paramLabels.map(() => 'auto'), 'auto', 'auto'];
+  const detailWidths = [
+    'auto', 'auto', 'auto', 'auto', 'auto',
+    ...paramLabels.map(() => 'auto'),
+    'auto', 'auto',
+  ];
 
-  // ── Comments table: Avg | Comment ───────────────────────────────────────
+  // ── Comments table: Batch/Class | Avg | Comment ─────────────────────────
+  // The class is named alongside each comment: in a multi-subject batch an
+  // unattributed comment is unactionable, since "the pace was too fast" means
+  // nothing without knowing which session it was about.
   const commentBody = [
-    [headerCell('Avg (1-5)'), headerCell('Comment')],
-    ...report.rows
+    [headerCell('Batch · Class'), headerCell('Avg (1-5)'), headerCell('Comment')],
+    ...(report.rows || [])
       .filter((r) => r.comment)
-      .map((r) => [dataCell(fmt(r.average)), dataCell(r.comment, 'center')]),
+      .map((r) => [
+        dataCell(`${r.batchName || '—'} · ${r.className || '—'}`, 'left'),
+        dataCell(fmt(r.average)),
+        dataCell(r.comment, 'left'),
+      ]),
   ];
 
   const content = [
@@ -146,7 +170,7 @@ export async function buildPdf(report) {
       layout: centeredTableLayout,
     },
     { text: 'Individual feedback', style: 'sectionTitle', margin: [0, 16, 0, 6] },
-    report.rows.length
+    (report.rows || []).length
       ? {
           table: { headerRows: 1, widths: detailWidths, body: detailBody, dontBreakRows: true, keepWithHeaderRows: 1 },
           layout: centeredTableLayout,
@@ -158,7 +182,7 @@ export async function buildPdf(report) {
     content.push(
       { text: 'Comments', style: 'sectionTitle', margin: [0, 16, 0, 6] },
       {
-        table: { headerRows: 1, widths: ['auto', '*'], body: commentBody, dontBreakRows: true, keepWithHeaderRows: 1 },
+        table: { headerRows: 1, widths: ['auto', 'auto', '*'], body: commentBody, dontBreakRows: true, keepWithHeaderRows: 1 },
         layout: centeredTableLayout,
       }
     );
@@ -167,7 +191,10 @@ export async function buildPdf(report) {
   const docDefinition = {
     pageOrientation: 'landscape',
     pageSize: 'A4',
-    pageMargins: [32, 84, 32, 48],
+    /* Top margin has to clear the repeating header, which grows by a line for
+       a mentor role split and another for a truncation notice. A fixed 84
+       would let those lines print underneath the first table row. */
+    pageMargins: [32, 84 + (report.roleSplit ? 12 : 0) + (report.truncated ? 12 : 0), 32, 48],
     defaultStyle: { font: 'Roboto', fontSize: 9, color: '#1f2430' },
     styles: {
       sectionTitle: { fontSize: 12, bold: true, color: BRAND, margin: [0, 0, 0, 6] },
@@ -197,6 +224,35 @@ export async function buildPdf(report) {
           ],
           margin: [0, 2, 0, 0],
         },
+        ...(report.roleSplit
+          ? [
+              {
+                // One mentor's report states both roles separately: a blended
+                // average hides whether a low score came from sessions they
+                // delivered or ones they only assisted on.
+                text:
+                  `As main mentor: ${report.roleSplit.main.feedbackCount} responses, avg ` +
+                  `${fmt(report.roleSplit.main.overallAverage)} / 5   ·   ` +
+                  `As support mentor: ${report.roleSplit.support.feedbackCount} responses, avg ` +
+                  `${fmt(report.roleSplit.support.overallAverage)} / 5`,
+                fontSize: 8,
+                italics: true,
+                color: '#666',
+                margin: [0, 2, 0, 0],
+              },
+            ]
+          : []),
+        ...(report.truncated
+          ? [
+              {
+                text: `Capped at ${report.rowLimit} rows — narrow the filters for a complete export.`,
+                fontSize: 8,
+                bold: true,
+                color: '#b4530a',
+                margin: [0, 2, 0, 0],
+              },
+            ]
+          : []),
         { canvas: [{ type: 'line', x1: 0, y1: 6, x2: 778, y2: 6, lineWidth: 0.5, lineColor: GRID }] },
       ],
     }),

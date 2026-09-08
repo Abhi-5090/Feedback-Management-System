@@ -5,6 +5,19 @@
 
 ---
 
+> **As-built note.** This document was the original design. Two things evolved during
+> implementation and are described in full in [`README.md`](README.md):
+>
+> 1. **A batch holds many subjects, not one.** `Batch.class` became
+>    `Batch.classes = [{ class, mainTrainers, supportTrainers }]`. One student submission produces
+>    one `Feedback` row per subject, but increments the cap counter once.
+> 2. **Mentors have two roles.** Each subject in a batch is delivered by one or more **main
+>    mentors** and assisted by zero or more **support mentors** — see §2.1 below. Sections 5
+>    (data models) and 6 (API surface) have been updated accordingly; §3 (passcode) and §4
+>    (anti-duplicate) hold, with the entropy and round refinements noted inline.
+>
+> Migration path for an existing install: `npm run migrate` in `FMS_Backend`.
+
 ## 1. System Overview
 
 There are **two authenticated roles** (Admin, Trainer) and **one anonymous flow** (Student feedback). Students are never asked to log in or reveal identity.
@@ -49,6 +62,58 @@ There are **two authenticated roles** (Admin, Trainer) and **one anonymous flow*
 - **Parameter** — one of the (default 8) admin-editable rating dimensions. Rated 1–5 stars.
 - **Feedback** — one anonymous submission: a rating per active parameter + one mandatory comment, tied to a Batch.
 - **Window** — a batch is only open for submissions while the admin has "unlocked" it. Unlocking (re)generates the passcode; locking closes the window and invalidates the passcode.
+
+---
+
+## 2.1 Mentor roles: main and support
+
+A training institute does not staff a subject with one person. A session is **delivered** by one or
+more mentors and **assisted** by others, and the assignment is made **per cohort** — the same
+subject runs with a different team for a different batch.
+
+```js
+Batch.classes = [{
+  class:           ObjectId,     // the subject
+  mainTrainers:    [ObjectId],   // deliver it — at least one, often several
+  supportTrainers: [ObjectId],   // assist — zero or more
+}]
+```
+
+Constraints enforced server-side:
+
+| Rule | Why |
+|---|---|
+| At least one main mentor per subject | Feedback must always attribute to someone who taught it |
+| Nobody in both rosters for one subject | The two roles are exclusive claims about the same session |
+| Both rosters are per-batch, not per-subject | `Class.trainer` is only an optional pre-fill default |
+| An **open** batch cannot be restaffed | Already-submitted feedback would reference a team that no longer matches |
+| A mentor staffed on an open batch cannot be deactivated | Live sessions would be attributed to a disabled account |
+
+### Attribution model
+
+Both rosters are **denormalised onto every `Feedback` row** at submission time. A student rates the
+subject **once**, and the mentors on it share that rating, split by the role each held:
+
+- isolation matches a mentor in **either** roster;
+- `?role=main` narrows to sessions they delivered, `?role=support` to ones they assisted;
+- restaffing a batch later never rewrites history.
+
+Blending the two into one average is actively misleading in both directions — it charges a mentor
+for sessions someone else delivered, and rewards those who never assist — so every mentor-facing
+surface (dashboard, comparison, exports) reports them separately.
+
+The alternative, rating each mentor individually, was rejected: a four-mentor session would ask a
+student for 32 stars and four comments, and response rate is what actually determines whether the
+feedback is worth anything.
+
+### Scoping pitfall (worth knowing)
+
+Resolving "which subjects is this mentor on?" **must** unwind the batch's `classes` array *before*
+testing the roster. `Batch.distinct('classes.class', { 'classes.supportTrainers': id })` looks
+equivalent and is not — the filter selects whole batches containing a match and then returns every
+subject in them, so a mentor assisting on one subject would be granted access to the others. See
+`trainerClassIds` in `services/analyticsService.js` and the regression test in
+`tests/isolation.test.js` ("Scoping within a multi-subject batch").
 
 ---
 

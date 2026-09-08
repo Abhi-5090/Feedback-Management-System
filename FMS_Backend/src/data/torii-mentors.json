@@ -1,0 +1,131 @@
+{
+  "_note": "Maps the short names used on the Torii training board to real FMS accounts. shortName is the board's label; name/email are the account. Edit this file rather than the importer when a name changes or a new mentor joins.",
+  "_ambiguous": [
+    "CONFIRMED BY THE INSTITUTION: board name 'Prasanth' (20 support periods) is Prashanth B <prashanth@ncetmail.com>, and 'Prasanth K' (0 periods) is Prasanth K <prasanth.k@ncetmail.com>. Both are stored under those SHORT names on purpose \u2014 the B/K suffix is the only thing that distinguishes them in a list, so a full legal name would be less readable, not more."
+  ],
+  "mentors": [
+    {
+      "shortName": "Bhargav",
+      "name": "Bhargava R",
+      "email": "dr.bhargava@ncetmail.com"
+    },
+    {
+      "shortName": "Abraham",
+      "name": "Abraham Rajan",
+      "email": "abinrajan1994@ncetmail.com"
+    },
+    {
+      "shortName": "Prasanth",
+      "name": "Prashanth B",
+      "email": "prashanth@ncetmail.com"
+    },
+    {
+      "shortName": "Harika",
+      "name": "Harika Sai Lakshmi Uppuluri",
+      "email": "sailakshmi@ncetmail.com"
+    },
+    {
+      "shortName": "Naveen",
+      "name": "Naveen Kumar Balupala",
+      "email": "balupalanaveen@ncetmail.com"
+    },
+    {
+      "shortName": "Sudhir",
+      "name": "Sri Satya Sudhir Reddy",
+      "email": "sudhir.r@ncetmail.com"
+    },
+    {
+      "shortName": "Suneeta",
+      "name": "Suneeta Somisetti",
+      "email": "suneeta.s@ncetmail.com"
+    },
+    {
+      "shortName": "Jayanth",
+      "name": "Jayanth M",
+      "email": "jayanth.m@ncetmail.com"
+    },
+    {
+      "shortName": "Hemavathi",
+      "name": "Hemavathi V N",
+      "email": "hemavathi.vn@ncetmail.com"
+    },
+    {
+      "shortName": "Abhishek",
+      "name": "Abhishek Nallam",
+      "email": "abhishek.n@ncetmail.com"
+    },
+    {
+      "shortName": "Satish",
+      "name": "Sathish Kathrishetty",
+      "email": "sathish@ncetmail.com"
+    },
+    {
+      "shortName": "Peter",
+      "name": "Jonathan Peters",
+      "email": "jonathan@ncetmail.com"
+    },
+    {
+      "shortName": "Prasanth K",
+      "name": "Prasanth K",
+      "email": "prasanth.k@ncetmail.com"
+    },
+    {
+      "shortName": "Veerababu",
+      "name": "Veerababu Torati",
+      "email": "torati.veerababu@ncetmail.com"
+    },
+    {
+      "shortName": "Harshavardhini",
+      "name": "Harshavardhini Jakke",
+      "email": "harshavardhini.j@ncetmail.com"
+    },
+    {
+      "shortName": "Abhilash",
+      "name": "Abhilash Anala",
+      "email": "abhilash.a@ncetmail.com"
+    },
+    {
+      "shortName": "Sampath",
+      "name": "Sampath Rayi",
+      "email": "sampath.r@ncetmail.com"
+    },
+    {
+      "shortName": "Kiran Immandi",
+      "name": "Kiran Immandi",
+      "email": "kiran.immandi@ncetmail.com"
+    }
+  ],
+  "rosterOnly": [
+    {
+      "shortName": "Azarunnisa",
+      "name": "Azarunnisa Mohammad",
+      "email": "azarunnisa.mohammad@ncetmail.com"
+    },
+    {
+      "shortName": "Manikanta",
+      "name": "Naga Venkata Sai Manikanta Srighakollapu",
+      "email": "manikanta.s@ncetmail.com"
+    },
+    {
+      "shortName": "Chaitanya",
+      "name": "Kiran Naga Durga Chaitanya Kandregula",
+      "email": "chaitanya.k@ncetmail.com"
+    },
+    {
+      "shortName": "Rahul",
+      "name": "Rahul Varma Rudraraju",
+      "email": "rahul.r@ncetmail.com"
+    },
+    {
+      "shortName": "Akhilesh",
+      "name": "Nagendra Sai Akhilesh Varanasi",
+      "email": "akhilesh.v@ncetmail.com"
+    },
+    {
+      "shortName": "Boby",
+      "name": "Veerabhadra Boby Pamarthi",
+      "email": "boby.p@ncetmail.com"
+    }
+  ],
+  "_rosterOnlyNote": "On the FMS trainer roster but not staffed on the current Torii board. Created as active accounts with no sessions, so they appear as 'Unassigned' in the mentor matrix."
+}

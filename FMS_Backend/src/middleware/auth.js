@@ -24,6 +24,18 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
   const user = await User.findById(payload.sub);
   if (!user || !user.isActive) throw unauthorized('Account not found or disabled');
 
+  /* Session generation check — the revocation half of the JWT story.
+     A token minted before the user's last password change (or explicit
+     "sign out everywhere") carries a stale `ver` and is refused here, even
+     though its signature and expiry are both still valid. Tokens issued
+     before this field existed have no `ver`; they are treated as generation 0
+     so an in-flight session survives the upgrade rather than 401-ing
+     everyone the moment this deploys. */
+  const tokenVer = Number.isInteger(payload.ver) ? payload.ver : 0;
+  if (tokenVer < (user.tokenVersion || 0)) {
+    throw unauthorized('Your session has been signed out. Please sign in again.', 'SESSION_REVOKED');
+  }
+
   req.user = user;
   next();
 });

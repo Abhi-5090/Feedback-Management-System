@@ -97,6 +97,7 @@ function BatchCard({ b }) {
         </span>
         <Link
           to={`/trainer/batch/${b.id}`}
+          state={{ from: '/trainer/batches' }}
           className="btn-primary !px-3.5 !py-1.5 text-xs"
           aria-label={`View feedback for ${b.name}`}
         >

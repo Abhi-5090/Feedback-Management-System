@@ -31,7 +31,7 @@ function BatchRow({ b }) {
             {!b.classes?.length
               ? '—'
               : b.classes.length === 1
-                ? `${b.classes[0].name} · ${b.classes[0].trainerName}`
+                ? `${b.classes[0].name} · ${(b.classes[0].mainTrainerNames || []).join(', ') || 'Unstaffed'}`
                 : `${b.classCount} classes · ${b.classes.map((c) => c.name).join(', ')}`}
           </p>
         </div>

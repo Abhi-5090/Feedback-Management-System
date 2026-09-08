@@ -39,18 +39,24 @@ export default function TrainerComparison() {
   const [data, setData] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const [showUnrated, setShowUnrated] = useState(false);
+  /* Which role's feedback to rank on. This matters for fairness: blending a
+     mentor's own teaching with sessions they merely assisted produces a
+     ranking that penalises helpful people and flatters ones who never assist.
+     Scoping is applied SERVER-side, so this refetches. */
+  const [role, setRole] = useState('');
   const reduce = useReducedMotion();
 
   useEffect(() => {
     (async () => {
+      setData(null);
       try {
-        setData(await AnalyticsAPI.trainers());
+        setData(await AnalyticsAPI.trainers(role ? { role } : {}));
       } catch (e) {
         toast.error(e.message);
         setData({ trainers: [], parameters: [] });
       }
     })();
-  }, [toast]);
+  }, [toast, role]);
 
   const rated = useMemo(() => (data?.trainers || []).filter((t) => t.average != null), [data]);
   const unrated = useMemo(() => (data?.trainers || []).filter((t) => t.average == null), [data]);
@@ -66,13 +72,54 @@ export default function TrainerComparison() {
     <div className="space-y-5">
       <PageHeader
         eyebrow="Analytics"
-        title="Trainer comparison"
-        subtitle="Every trainer measured on the same parameters. Averages are weighted by response count, so a class of forty counts for more than a class of two."
+        title="Mentor comparison"
+        subtitle="Every mentor measured on the same parameters. Averages are weighted by response count, so a class of forty counts for more than a class of two, and attribution follows who actually taught each session rather than who owns the subject."
       />
+
+      {/* Ranking on blended feedback is unfair in both directions: it charges a
+          mentor for sessions someone else delivered, and rewards those who
+          never assist. So the role being ranked is an explicit, visible
+          choice rather than a hidden default. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+          Rank on
+        </span>
+        <div
+          role="radiogroup"
+          aria-label="Role to rank on"
+          className="inline-flex rounded-full bg-surface-2 p-1 ring-1 ring-inset ring-line"
+        >
+          {[
+            { v: '', label: 'Both roles', title: 'All feedback from sessions each mentor was staffed on' },
+            { v: 'main', label: 'As main mentor', title: 'Only sessions each mentor delivered — their own teaching record' },
+            { v: 'support', label: 'As support mentor', title: 'Only sessions each mentor assisted on' },
+          ].map((opt) => (
+            <button
+              key={opt.v || 'all'}
+              type="button"
+              role="radio"
+              aria-checked={role === opt.v}
+              title={opt.title}
+              onClick={() => setRole(opt.v)}
+              className={`focus-ring rounded-full px-3 py-1.5 text-xs font-semibold transition-colors duration-150 ${
+                role === opt.v ? 'bg-card text-ink shadow-sm' : 'text-muted hover:text-ink'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {role && (
+          <p className="text-xs text-muted">
+            Showing only feedback from sessions each mentor{' '}
+            {role === 'main' ? 'delivered' : 'assisted on'}.
+          </p>
+        )}
+      </div>
 
       {summary && (
         <div className="panel animate-fade-up divide-y divide-line sm:grid sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-          <Fig label="Rated trainers" value={rated.length} icon="users" />
+          <Fig label="Rated mentors" value={rated.length} icon="users" />
           <Fig label="Total responses" value={summary.responses} icon="inbox" />
           <Fig label="Highest rated" value={summary.best.average.toFixed(2)} icon="trendUp" sub={summary.best.name} tone="emerald" />
           <Fig label="Needs support" value={summary.needs.average.toFixed(2)} icon="alert" sub={summary.needs.name} tone="amber" />

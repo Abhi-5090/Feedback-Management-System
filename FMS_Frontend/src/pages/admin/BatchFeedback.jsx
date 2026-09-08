@@ -9,6 +9,9 @@ export default function AdminBatchFeedback() {
   return (
     <BatchFeedbackView
       fetcher={fetcher}
+      // What to load. The view keys its effect on this, so changing the id
+      // refetches while an unstable fetcher identity cannot loop.
+      reloadKey={batchId}
       exportPath={`/export/batch/${batchId}`}
       exportName="batch_feedback"
       backTo="/admin/batches"

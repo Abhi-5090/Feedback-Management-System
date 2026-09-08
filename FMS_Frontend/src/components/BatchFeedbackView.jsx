@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useToast } from './Toast.jsx';
 import Card, { EmptyState } from './Card.jsx';
 import StatTile from './StatTile.jsx';
@@ -9,6 +9,7 @@ import CommentsFeed from './CommentsFeed.jsx';
 import ParamBarChart from './charts/ParamBarChart.jsx';
 import TrendLineChart from './charts/TrendLineChart.jsx';
 import Icon from './Icon.jsx';
+import { MentorRosterBadges } from './MentorRosterPicker.jsx';
 
 const BackLink = ({ onClick }) => (
   <button
@@ -48,7 +49,13 @@ function ClassBreakdownCard({ c, basePath }) {
           <h3 className="truncate font-semibold tracking-tight text-ink">{c.name}</h3>
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
             <Icon name="user" size={12} />
-            <span className="truncate">{c.trainerName || 'Unassigned'}</span>
+            {/* Both rosters: a co-taught session has several mentors, and
+                naming only one of them misattributes the other's work. */}
+            <MentorRosterBadges
+              mainTrainerNames={c.mainTrainerNames}
+              supportTrainerNames={c.supportTrainerNames}
+              compact
+            />
           </p>
         </div>
         <div className={`shrink-0 rounded-2xl px-3 py-2 text-center ring-1 ring-inset ${t.bg} ${t.ring}`}>
@@ -128,38 +135,62 @@ function ClassBreakdownCard({ c, basePath }) {
  * model exists to provide. `fetcher` returns AnalyticsAPI.batch(); role scoping
  * happens server-side (a trainer only sees their own classes here).
  */
-export default function BatchFeedbackView({ fetcher, exportPath, exportName, backTo, basePath }) {
+export default function BatchFeedbackView({ fetcher, exportPath, exportName, backTo, basePath, reloadKey }) {
   const toast = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
+  /* Back should return to the page you ARRIVED from, not to a fixed one.
+     This view is reachable from Feedbacks, from Classes/Batches, and from the
+     year-group breakdown, and a hardcoded target sent people somewhere they
+     had never been — pressing Back from a subject opened via Feedbacks landed
+     on Classes. Linking pages pass their own path in router state; `backTo`
+     stays as the fallback for a direct URL or a page refresh, where there is
+     no in-app history to return to. */
+  const backTarget = location.state?.from || backTo;
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
+  /* The fetcher is held in a ref and the effect is keyed on `reloadKey`, not on
+     the function identity.
+     Depending on [fetcher] looked correct and was a trap: a caller that passes
+     an inline arrow gets a new identity on every render, so the effect re-ran,
+     set state, re-rendered, and re-ran — an infinite loop that fires a toast
+     per iteration and never reaches the error UI. Today's callers happen to
+     wrap theirs in useCallback, so the bug was latent rather than visible;
+     keying on the id makes it impossible to reintroduce. */
+  const fetcherRef = useRef(fetcher);
+  fetcherRef.current = fetcher;
+
   useEffect(() => {
     let alive = true;
+    setData(null);
+    setError(null);
     (async () => {
       try {
-        const d = await fetcher();
+        const d = await fetcherRef.current();
         if (alive) setData(d);
       } catch (e) {
-        if (alive) setError(e.message);
+        if (!alive) return;
+        setError(e.message);
         toast.error(e.message);
       }
     })();
     return () => {
       alive = false;
     };
-  }, [fetcher]); // eslint-disable-line
+    // toast is a stable context value; reloadKey identifies WHAT to load.
+  }, [reloadKey, toast]);
 
   if (error) {
     return (
       <div className="space-y-4">
-        <BackLink onClick={() => navigate(backTo)} />
+        <BackLink onClick={() => navigate(backTarget)} />
         <Card>
           <EmptyState
             title="Couldn’t load this batch"
             hint={error}
             icon="alert"
-            action={<button className="btn-outline" onClick={() => navigate(backTo)}>Go back</button>}
+            action={<button className="btn-outline" onClick={() => navigate(backTarget)}>Go back</button>}
           />
         </Card>
       </div>
@@ -191,7 +222,7 @@ export default function BatchFeedbackView({ fetcher, exportPath, exportName, bac
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <BackLink onClick={() => navigate(backTo)} />
+          <BackLink onClick={() => navigate(backTarget)} />
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="truncate text-xl font-bold tracking-tight text-ink sm:text-2xl">{b?.name}</h1>
             <span className={isOpen ? 'chip-open' : 'chip-locked'}>

@@ -5,6 +5,7 @@ import {
   exportBatch,
   exportTrainerMe,
   exportAdminDashboard,
+  exportMentors,
 } from '../controllers/exportController.js';
 
 const router = Router();
@@ -15,8 +16,9 @@ router.use(requirePasswordChanged);
 // Trainer's own data (scoped inside the controller).
 router.get('/trainer/me', requireRole('trainer'), exportTrainerMe);
 
-// Admin dashboard export honors the same filters as the dashboard.
+// Admin exports honor the same filters as the dashboards.
 router.get('/dashboard/admin', requireRole('admin'), exportAdminDashboard);
+router.get('/mentors', requireRole('admin'), exportMentors);
 
 // class/batch exports: admin (any) + trainer (own only — enforced in controller).
 router.get('/class/:id', exportClass);

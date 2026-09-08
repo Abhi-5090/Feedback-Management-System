@@ -2,11 +2,16 @@
 node_modules/
 **/node_modules/
 
-# Environment / secrets — never commit real values (use .env.example)
+# Environment / secrets — never commit real values (use .env.example).
+# The broad `.env*` rule catches .env.local, .env.production, .env.backup and
+# any other suffix someone invents; .env.example is re-allowed explicitly
+# because it is the documented template and must stay tracked.
 .env
+.env.*
 **/.env
-.env.local
-**/.env.local
+**/.env.*
+!.env.example
+!**/.env.example
 *.pem
 *.key
 
@@ -33,3 +38,7 @@ yarn-error.log*
 # Misc
 .cache/
 tmp/
+
+# Database backups written by reset-and-import.js (contain password hashes)
+backups/
+**/backups/

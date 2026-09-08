@@ -4,11 +4,20 @@ import { env } from '../config/env.js';
 export const AUTH_COOKIE = 'fms_token';
 export const DEVICE_COOKIE = 'fms_device';
 
-/** Sign a JWT carrying the user id + role. */
+/**
+ * Sign a JWT carrying the user id, role and session generation.
+ *
+ * `ver` mirrors `user.tokenVersion`. requireAuth rejects a token whose `ver`
+ * is behind the stored value, which is what makes a password change (or an
+ * explicit "sign out everywhere") revoke tokens that were already issued.
+ * Without it a stolen 7-day token outlives the very action meant to kill it.
+ */
 export function signAuthToken(user) {
-  return jwt.sign({ sub: String(user._id), role: user.role }, env.jwtSecret, {
-    expiresIn: env.jwtExpiresIn,
-  });
+  return jwt.sign(
+    { sub: String(user._id), role: user.role, ver: user.tokenVersion || 0 },
+    env.jwtSecret,
+    { expiresIn: env.jwtExpiresIn }
+  );
 }
 
 export function verifyAuthToken(token) {

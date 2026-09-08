@@ -1,9 +1,11 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { env, isProd } from './config/env.js';
 import { publicLimiter } from './middleware/rateLimit.js';
+import { hardenQuery } from './middleware/hardenQuery.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 
 import authRoutes from './routes/authRoutes.js';
@@ -20,6 +22,24 @@ import publicRoutes from './routes/publicRoutes.js';
 export function createApp() {
   const app = express();
   app.set('trust proxy', 1); // correct client IPs behind a proxy (rate limiting)
+
+  /* Parse query strings with Node's own `querystring`, not `qs`.
+   *
+   * Express 4 pins a version of `qs` carrying two unfixed advisories — an
+   * array-limit bypass through bracket-key comma parsing, and a denial of
+   * service through an attacker-controlled `isBuffer` — and neither can be
+   * patched without moving to Express 5. `qs` exists to support NESTED query
+   * syntax (`?a[b][c]=1`), and this API uses none: every query parameter is a
+   * flat scalar (page, limit, q, role, yearGroup, from, to, format, …), each
+   * validated by zod immediately afterwards.
+   *
+   * Switching to the simple parser removes that code from the request path
+   * entirely, which is a better outcome than upgrading it — an unreachable
+   * dependency cannot be exploited. `npm audit` will still report `qs` because
+   * it remains in the tree as an Express dependency; it is no longer used to
+   * parse anything an attacker controls.
+   */
+  app.set('query parser', 'simple');
 
   app.use(helmet());
 
@@ -53,8 +73,43 @@ export function createApp() {
   app.use('/api/trainers/bulk/preview', express.json({ limit: '6mb' }));
   app.use(express.json({ limit: '256kb' }));
   app.use(cookieParser());
+  // Defence in depth against NoSQL injection through query parameters. Mounted
+  // before every route so no handler can opt out by omission.
+  app.use(hardenQuery);
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'fms-api' }));
+  // Unauthenticated liveness probe. Deliberately thin — it must not reveal
+  // deployment internals to anonymous callers. The detailed picture (mail
+  // transport, transaction support, limits) lives behind auth at
+  // GET /api/auth/system.
+  app.get('/api/health', (_req, res) =>
+    res.json({
+      ok: true,
+      service: 'fms-api',
+      uptime: Math.round(process.uptime()),
+      // Which worker answered. Makes it possible to confirm a load balancer is
+      // actually spreading traffic rather than pinning it to one process.
+      pid: process.pid,
+      worker: process.env.WORKER_INDEX ? Number(process.env.WORKER_INDEX) : null,
+    })
+  );
+
+  /* Readiness, as distinct from liveness.
+     /health says the process is up. This says it can actually serve: the
+     database is connected and responding. An orchestrator that routes traffic
+     on liveness alone will send a cohort's requests to a worker whose database
+     connection has dropped, and every one of them fails. */
+  app.get('/api/ready', async (_req, res) => {
+    const state = mongoose.connection.readyState; // 1 = connected
+    if (state !== 1) {
+      return res.status(503).json({ ok: false, reason: 'database not connected', state });
+    }
+    try {
+      await mongoose.connection.db.admin().command({ ping: 1 });
+      return res.json({ ok: true, database: 'reachable', pid: process.pid });
+    } catch (err) {
+      return res.status(503).json({ ok: false, reason: 'database unreachable', error: err.message });
+    }
+  });
 
   // Auth
   app.use('/api/auth', authRoutes);

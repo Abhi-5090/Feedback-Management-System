@@ -20,6 +20,7 @@ const Comments = lazy(() => import('./pages/Comments.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
 const Audit = lazy(() => import('./pages/admin/Audit.jsx'));
 const TrainerComparison = lazy(() => import('./pages/admin/TrainerComparison.jsx'));
+const Cohorts = lazy(() => import('./pages/admin/Cohorts.jsx'));
 const AdminLayout = lazy(() => import('./layouts/AdminLayout.jsx'));
 const AdminDashboard = lazy(() => import('./pages/admin/Dashboard.jsx'));
 const Trainers = lazy(() => import('./pages/admin/Trainers.jsx'));
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="audit" element={<Audit />} />
           <Route path="compare" element={<TrainerComparison />} />
+          <Route path="cohorts" element={<Cohorts />} />
         </Route>
 
         {/* Trainer */}

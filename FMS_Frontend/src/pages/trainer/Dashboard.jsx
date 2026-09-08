@@ -5,6 +5,7 @@ import { usePolling } from '../../hooks/usePolling.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import StatTile from '../../components/StatTile.jsx';
+import RoleSplitPanel from '../../components/RoleSplitPanel.jsx';
 import Card from '../../components/Card.jsx';
 import Hero from '../../components/Hero.jsx';
 import OpenBatchesPanel from '../../components/OpenBatchesPanel.jsx';
@@ -79,16 +80,31 @@ export default function TrainerDashboard() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile label="My classes" value={k.myClasses} icon="book" accent="sky" delay={0}
-              hint="Training subjects the admin has assigned to you." />
-            <StatTile label="My batches" value={k.myBatches} icon="ticket" accent="brand" delay={50}
-              hint="Cohorts across all of your classes." />
+            <StatTile label="I deliver" value={k.mainClasses ?? k.myClasses} icon="user-check" accent="sky" delay={0}
+              sub="as main mentor"
+              hint="Classes you are the main mentor for — the ones you deliver." />
+            <StatTile label="I assist on" value={k.supportClasses ?? 0} icon="users" accent="violet" delay={50}
+              sub="as support mentor"
+              hint="Classes you support. Another mentor delivers these; you assist the session." />
             <StatTile label="Responses" value={k.feedbackCount} icon="inbox" accent="amber" delay={100}
-              hint="Anonymous responses received across your classes." />
+              hint="Anonymous responses across every class you are staffed on, in either role." />
             <StatTile label="My avg rating" value={k.overallAverage.toFixed(2)} icon="star" accent="rose" delay={150}
               sub="out of 5"
-              hint="Mean of all stars students gave across every rated parameter." />
+              hint="Mean of all stars across every rated parameter, both roles combined. The split below separates them." />
           </div>
+
+          {/* The blended average above is a summary; this is the honest
+              version. A weak score on a class someone else delivered should
+              not read as a weak score on your own teaching. */}
+          {data.roleSplit && (
+            <Card
+              title="My ratings by role"
+              icon="sliders"
+              hint="Feedback on sessions you delivered, separated from sessions you assisted on."
+            >
+              <RoleSplitPanel split={data.roleSplit} />
+            </Card>
+          )}
 
           <div className="grid gap-5 lg:grid-cols-2">
             <Card
@@ -120,6 +136,7 @@ export default function TrainerDashboard() {
                       <Link
                         key={c.classId}
                         to={`/trainer/class/${c.classId}`}
+          state={{ from: '/trainer' }}
                         className="focus-ring inline-flex items-center gap-1.5 rounded-full bg-brand-500/10 px-2.5 py-1 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-500/20 transition-colors duration-150 hover:bg-brand-500/20 dark:text-brand-300"
                       >
                         {c.className}

@@ -16,8 +16,15 @@ import { env } from '../config/env.js';
  * Implemented with a plain interval rather than a cron dependency: the schedule
  * is "once a day, send anything due", which needs no cron expression parsing.
  * The interval ticks hourly and each recipient is sent at most one digest per
- * period, tracked on the user document — so a restart, a redeploy, or two app
- * instances racing cannot produce duplicate mail.
+ * period.
+ *
+ * IDEMPOTENCE ACROSS INSTANCES. `lastSentAt` alone is not enough: two app
+ * instances (or an instance plus a manual run) both read "due", both send, and
+ * only then does either stamp the document — so the recipient gets two copies.
+ * The fix is to CLAIM the send first, with a conditional atomic update that
+ * only one caller can win, and to send afterwards. A claim that later fails to
+ * deliver is the right trade: a missed weekly digest is a smaller harm than
+ * duplicate mail every hour, and the next period retries anyway.
  */
 
 const PERIOD_DAYS = { daily: 1, weekly: 7, monthly: 30 };
@@ -83,7 +90,7 @@ export async function runDigests({ force = false } = {}) {
     'digest.enabled': true,
   }).lean();
 
-  const results = { considered: recipients.length, sent: 0, skipped: 0 };
+  const results = { considered: recipients.length, sent: 0, skipped: 0, failed: 0 };
 
   for (const user of recipients) {
     const frequency = user.digest?.frequency || 'weekly';
@@ -97,10 +104,30 @@ export async function runDigests({ force = false } = {}) {
       continue;
     }
 
+    /* CLAIM the send before doing any work. The filter repeats the due-ness
+       test against the value we just read, so if another instance stamped it
+       in between, our update matches nothing and we skip. Exactly one caller
+       can win this for a given period. `force` still claims (so a manual test
+       send works) but does so by matching the same lastSentAt, which keeps two
+       concurrent forced runs from both sending. */
+    const claim = await User.updateOne(
+      {
+        _id: user._id,
+        'digest.enabled': true,
+        ...(last ? { 'digest.lastSentAt': last } : { 'digest.lastSentAt': null }),
+      },
+      { $set: { 'digest.lastSentAt': new Date() } }
+    );
+    if (!claim.modifiedCount) {
+      // Someone else is sending this one.
+      results.skipped++;
+      continue;
+    }
+
     const stats = await buildDigest(user, days);
     if (!stats) {
-      // Nothing to report — record the attempt so we don't retry hourly.
-      await User.updateOne({ _id: user._id }, { 'digest.lastSentAt': new Date() });
+      // Nothing to report. The claim above already stamped the attempt, so we
+      // won't retry hourly.
       results.skipped++;
       continue;
     }
@@ -113,11 +140,10 @@ export async function runDigests({ force = false } = {}) {
       appUrl: `${env.appUrl}/${user.role === 'admin' ? 'admin' : 'trainer'}`,
     });
     const r = await sendMail({ to: user.email, ...mail });
-
-    // Stamp regardless of delivery outcome: a bouncing address must not cause
-    // an infinite retry loop every hour.
-    await User.updateOne({ _id: user._id }, { 'digest.lastSentAt': new Date() });
+    // Already stamped by the claim, so a bouncing address cannot cause an
+    // infinite hourly retry.
     if (r.ok) results.sent++;
+    else results.failed = (results.failed || 0) + 1;
   }
 
   return results;

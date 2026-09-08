@@ -16,8 +16,16 @@ const isProdEnv = nodeEnv === 'production';
 const DEV_JWT_SECRET = 'dev_insecure_secret_change_me';
 const DEV_DEVICE_SALT = 'dev_insecure_device_salt_change_me';
 
+/**
+ * A secret is weak if it is missing, short, or recognisably a placeholder.
+ *
+ * 32 chars rather than 16: `openssl rand -hex 32` (the value the docs tell you
+ * to generate) is 64 chars, so this rejects a hand-typed stand-in without ever
+ * rejecting a properly generated key. HS256 keys shorter than the 256-bit hash
+ * output add no security beyond their own length.
+ */
 const looksWeak = (v) =>
-  !v || v.length < 16 || /change[_-]?me|insecure|example|placeholder/i.test(v);
+  !v || v.length < 32 || /change[_-]?me|insecure|example|placeholder|secret123|test/i.test(v);
 
 /**
  * Resolve a required secret. In production a missing or obviously-weak value is
@@ -42,6 +50,12 @@ export const env = {
   port: parseInt(process.env.PORT || '5000', 10),
   nodeEnv,
   mongoUri: process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/fms',
+  /* Connection pool ceiling. The default (100) is the limiting factor during a
+     submission burst: each transactional write holds a connection for its whole
+     duration, so 300 students arriving together queue behind 100 sockets.
+     Raise with care — Atlas enforces a per-cluster connection cap (500 on the
+     shared tiers), and that cap counts every app instance together. */
+  mongoMaxPoolSize: parseInt(process.env.MONGO_MAX_POOL_SIZE || '150', 10),
   jwtSecret: secret('JWT_SECRET', DEV_JWT_SECRET),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   deviceSalt: secret('DEVICE_SALT', DEV_DEVICE_SALT),
@@ -56,6 +70,26 @@ export const env = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+
+  /**
+   * Rate-limit budgets.
+   *
+   * The student endpoints are keyed on the per-device cookie rather than the
+   * IP, because a whole classroom behind one campus NAT presents as a SINGLE
+   * IP — an IP budget of 30/min throttled roughly 15 students a minute and
+   * showed everyone else "Too many requests" mid-survey. The per-IP number
+   * survives as a much wider backstop against a scripted flood.
+   */
+  publicMaxPerDevice: parseInt(process.env.PUBLIC_MAX_PER_DEVICE || '20', 10),
+  /* Sized from the real worst case rather than a round number: a 300-student
+     cohort needs ~2 requests each (verify + submit), several cohorts can run in
+     the same period, and a whole campus shares one NAT address. 5000/min leaves
+     ample headroom for that while still stopping a scripted flood dead. */
+  publicIpMax: parseInt(process.env.PUBLIC_IP_MAX || '5000', 10),
+  // Login is keyed on email+IP so one person fat-fingering their password
+  // cannot lock out everyone else sharing the network.
+  loginMaxPerIdentity: parseInt(process.env.LOGIN_MAX_PER_IDENTITY || '20', 10),
+  loginIpMax: parseInt(process.env.LOGIN_IP_MAX || '300', 10),
 
   // Product name used in email subjects/branding.
   appName: process.env.APP_NAME || 'Feedback Management',

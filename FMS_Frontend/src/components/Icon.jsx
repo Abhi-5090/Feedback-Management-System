@@ -22,6 +22,15 @@ const P = {
       <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6" />
     </>
   ),
+  /* A person with a tick — the main mentor who delivers a class, as distinct
+     from `users` (the support team who assist). */
+  'user-check': (
+    <>
+      <path d="M15 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 3 18.5V20" />
+      <circle cx="9" cy="7.5" r="3.5" />
+      <path d="m16.5 11 2 2 4-4" />
+    </>
+  ),
   users: (
     <>
       <path d="M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20" />

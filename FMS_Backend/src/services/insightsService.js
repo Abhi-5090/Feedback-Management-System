@@ -1,8 +1,10 @@
 import mongoose from 'mongoose';
 import { Feedback } from '../models/Feedback.js';
 import { Class } from '../models/Class.js';
+import { Batch } from '../models/Batch.js';
 import { User } from '../models/User.js';
-import { round } from './analyticsService.js';
+import { Parameter } from '../models/Parameter.js';
+import { round, andMatch } from './analyticsService.js';
 
 const oid = (id) => new mongoose.Types.ObjectId(String(id));
 
@@ -51,7 +53,9 @@ export async function periodDeltas(match, days = 30) {
 
 async function windowStats(match, from, to) {
   const [agg] = await Feedback.aggregate([
-    { $match: { ...match, createdAt: { $gte: from, $lt: to } } },
+    // andMatch, not a spread: `match` may already carry an $and/$or (the
+    // mentor-roster check is an $or), and merging keys would silently drop it.
+    { $match: andMatch(match, { createdAt: { $gte: from, $lt: to } }) },
     { $unwind: '$ratings' },
     {
       $group: {
@@ -86,111 +90,139 @@ async function windowStats(match, from, to) {
  *  - each trainer's per-parameter averages come back too, so a low overall
  *    score can be read as "pace, specifically" instead of a bare verdict.
  */
-export async function trainerComparison() {
-  const [trainers, classes] = await Promise.all([
-    User.find({ role: 'trainer' }).select('name email isActive').lean(),
-    Class.find({ archivedAt: null }).select('name trainer').lean(),
+export async function trainerComparison({ role } = {}) {
+  const [trainers, params] = await Promise.all([
+    User.find({ role: 'trainer' }).select('name shortName email isActive').lean(),
+    Parameter.find({ isActive: true }).sort({ order: 1 }).select('label').lean(),
   ]);
+  if (!trainers.length) return { trainers: [], parameters: [] };
 
-  const classesByTrainer = new Map();
-  for (const c of classes) {
-    const k = String(c.trainer);
-    if (!classesByTrainer.has(k)) classesByTrainer.set(k, []);
-    classesByTrainer.get(k).push(c);
+  /* Which roster(s) count for this comparison.
+     This used to be computed from `Class.trainer` — catalog ownership — which
+     is no longer the source of truth and was never right for a co-taught
+     subject: two mentors delivering the same class both deserve its score, and
+     the catalog can only name one. Attribution now comes from the rosters
+     denormalised onto each Feedback row, so it follows who actually taught. */
+  const rosters = [];
+  if (role !== 'support') rosters.push('mainTrainers');
+  if (role !== 'main') rosters.push('supportTrainers');
+
+  /** Aggregate per-mentor figures by unwinding one roster field. */
+  const perRoster = (field) => [
+    { $unwind: `$${field}` },
+    {
+      $facet: {
+        overall: [
+          { $unwind: '$ratings' },
+          {
+            $group: {
+              _id: `$${field}`,
+              sum: { $sum: '$ratings.stars' },
+              n: { $sum: 1 },
+              ids: { $addToSet: '$_id' },
+              last: { $max: '$createdAt' },
+              classes: { $addToSet: '$class' },
+              batches: { $addToSet: '$batch' },
+            },
+          },
+        ],
+        byParam: [
+          { $unwind: '$ratings' },
+          {
+            $group: {
+              _id: { t: `$${field}`, p: '$ratings.parameter' },
+              sum: { $sum: '$ratings.stars' },
+              n: { $sum: 1 },
+            },
+          },
+        ],
+      },
+    },
+  ];
+
+  const facets = await Promise.all(
+    rosters.map((f) => Feedback.aggregate(perRoster(f)).then((r) => r[0] || { overall: [], byParam: [] }))
+  );
+
+  // Merge the rosters. A mentor who both delivers and assists has their
+  // figures summed across both, weighted by rating count — the same weighting
+  // used for the per-class roll-up, so one two-response session cannot swing
+  // a mentor's score.
+  const agg = new Map(); // trainerId -> { sum, n, ids:Set, last, classes:Set, batches:Set }
+  const byParam = new Map(); // trainerId -> paramId -> { sum, n }
+
+  for (const facet of facets) {
+    for (const row of facet.overall) {
+      const k = String(row._id);
+      const cur = agg.get(k) || {
+        sum: 0, n: 0, ids: new Set(), last: null,
+        classes: new Set(), batches: new Set(),
+      };
+      cur.sum += row.sum;
+      cur.n += row.n;
+      row.ids.forEach((id) => cur.ids.add(String(id)));
+      row.classes.forEach((id) => cur.classes.add(String(id)));
+      row.batches.forEach((id) => cur.batches.add(String(id)));
+      if (row.last && (!cur.last || row.last > cur.last)) cur.last = row.last;
+      agg.set(k, cur);
+    }
+    for (const row of facet.byParam) {
+      const k = String(row._id.t);
+      const pid = String(row._id.p);
+      if (!byParam.has(k)) byParam.set(k, new Map());
+      const m = byParam.get(k);
+      const cur = m.get(pid) || { sum: 0, n: 0 };
+      cur.sum += row.sum;
+      cur.n += row.n;
+      m.set(pid, cur);
+    }
   }
 
-  const allClassIds = classes.map((c) => c._id);
-  if (!allClassIds.length) return { trainers: [], parameters: [] };
-
-  // Two grouped aggregations for the whole comparison, not one per trainer.
-  const [overall, perParam] = await Promise.all([
-    Feedback.aggregate([
-      { $match: { class: { $in: allClassIds } } },
-      { $unwind: '$ratings' },
-      {
-        $group: {
-          _id: '$class',
-          avg: { $avg: '$ratings.stars' },
-          ids: { $addToSet: '$_id' },
-          last: { $max: '$createdAt' },
+  // Current staffing load, so an unrated mentor still shows what they teach.
+  const staffFields = rosters.map((f) => `classes.${f}`);
+  const load = await Batch.aggregate([
+    { $match: { archivedAt: null } },
+    { $unwind: '$classes' },
+    {
+      $project: {
+        staff: {
+          $setUnion: staffFields.map((f) => ({ $ifNull: [`$${f}`, []] })),
         },
       },
-      { $project: { avg: 1, last: 1, responses: { $size: '$ids' } } },
-    ]),
-    Feedback.aggregate([
-      { $match: { class: { $in: allClassIds } } },
-      { $unwind: '$ratings' },
-      {
-        $group: {
-          _id: { c: '$class', p: '$ratings.parameter' },
-          avg: { $avg: '$ratings.stars' },
-        },
-      },
-    ]),
+    },
+    { $unwind: '$staff' },
+    { $group: { _id: '$staff', classes: { $sum: 1 }, batches: { $addToSet: '$_id' } } },
+    { $project: { classes: 1, batches: { $size: '$batches' } } },
   ]);
-
-  const byClass = new Map(overall.map((o) => [String(o._id), o]));
-  const { Parameter } = await import('../models/Parameter.js');
-  const params = await Parameter.find({ isActive: true }).sort({ order: 1 }).select('label').lean();
-  const paramIds = params.map((p) => String(p._id));
-
-  // class -> parameter -> avg
-  const paramByClass = new Map();
-  for (const r of perParam) {
-    const c = String(r._id.c);
-    if (!paramByClass.has(c)) paramByClass.set(c, {});
-    paramByClass.get(c)[String(r._id.p)] = r.avg;
-  }
+  const loadBy = new Map(load.map((l) => [String(l._id), l]));
 
   const rows = trainers.map((t) => {
-    const own = classesByTrainer.get(String(t._id)) || [];
-    let sum = 0;
-    let n = 0;
-    let responses = 0;
-    let last = null;
-    const paramSums = {};
-
-    for (const c of own) {
-      const st = byClass.get(String(c._id));
-      if (st) {
-        sum += st.avg * st.responses;
-        n += st.responses;
-        responses += st.responses;
-        if (!last || (st.last && st.last > last)) last = st.last;
-      }
-      const pmap = paramByClass.get(String(c._id)) || {};
-      for (const pid of paramIds) {
-        if (pmap[pid] != null) {
-          paramSums[pid] = paramSums[pid] || { sum: 0, n: 0 };
-          paramSums[pid].sum += pmap[pid];
-          paramSums[pid].n += 1;
-        }
-      }
-    }
+    const k = String(t._id);
+    const a = agg.get(k);
+    const pm = byParam.get(k) || new Map();
+    const l = loadBy.get(k) || { classes: 0, batches: 0 };
 
     return {
-      id: String(t._id),
+      id: k,
       name: t.name,
+      shortName: t.shortName || '',
       email: t.email,
       isActive: t.isActive !== false,
-      classes: own.length,
-      responses,
-      // Weighted by response count so a class with 40 responses counts more
-      // than one with 2 — a plain mean of class means would let a single
-      // two-response class swing a trainer's score.
-      average: n > 0 ? round(sum / n, 2) : null,
-      lastFeedbackAt: last,
+      classes: l.classes,
+      batches: l.batches,
+      responses: a ? a.ids.size : 0,
+      // Weighted by rating count so a session with 40 responses counts more
+      // than one with 2.
+      average: a && a.n > 0 ? round(a.sum / a.n, 2) : null,
+      lastFeedbackAt: a?.last || null,
       perParameter: params.map((p) => {
-        const agg = paramSums[String(p._id)];
-        return {
-          label: p.label,
-          average: agg ? round(agg.sum / agg.n, 2) : null,
-        };
+        const x = pm.get(String(p._id));
+        return { label: p.label, average: x && x.n ? round(x.sum / x.n, 2) : null };
       }),
     };
   });
 
-  // Rated trainers first (best → worst), then unrated ones alphabetically.
+  // Rated mentors first (best → worst), then unrated ones alphabetically.
   rows.sort((a, b) => {
     if (a.average == null && b.average == null) return a.name.localeCompare(b.name);
     if (a.average == null) return 1;
@@ -198,7 +230,7 @@ export async function trainerComparison() {
     return b.average - a.average;
   });
 
-  return { trainers: rows, parameters: params.map((p) => p.label) };
+  return { trainers: rows, parameters: params.map((p) => p.label), role: role || 'all' };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -255,8 +287,6 @@ export async function commentThemes(match, limit = 12) {
   // comment belongs to one specific class within it, so tracing a theme back to
   // just the batch would lose which class the students were actually talking
   // about. The drill-down link carries both ids.
-  const { Batch } = await import('../models/Batch.js');
-  const { Class } = await import('../models/Class.js');
   const batchIds = [...new Set(docs.map((d) => String(d.batch)))];
   const classIds = [...new Set(docs.map((d) => String(d.class)))];
   const [batches, classes] = await Promise.all([

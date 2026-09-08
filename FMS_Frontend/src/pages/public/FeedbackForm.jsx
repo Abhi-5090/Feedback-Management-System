@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PublicAPI } from '../../api/endpoints.js';
 import { lightweightFingerprint } from '../../lib/fingerprint.js';
@@ -26,17 +26,103 @@ const MIN_COMMENT = 10;
  *
  * 3. State is keyed by classId, so adding/removing a class server-side can
  *    never cross-wire one class's ratings onto another.
+ *
+ * 4. Answers are DRAFTED to localStorage as they are typed. A submission is
+ *    all-or-nothing by design (one atomic anonymous response per student), and
+ *    a ten-subject batch is 80 stars plus ten comments — so a dropped
+ *    connection, a backgrounded tab reloading, or an accidental refresh used to
+ *    destroy everything with no recourse. The draft is per (batch, round),
+ *    lives only in the student's own browser, is never sent anywhere, and is
+ *    cleared the moment a submission succeeds.
  */
+
+/** Draft key. Scoped to the round so a reopened batch starts clean. */
+const draftKey = (batchId, round) => `fms.draft.${batchId}.r${round ?? 0}`;
+
+/**
+ * localStorage can throw outright (Safari private mode, cookies-blocked
+ * browsers), and this form must work there — an anonymous student cannot be
+ * asked to change their browser settings. Every access is guarded and simply
+ * degrades to "no draft".
+ */
+const safeStorage = {
+  read(key) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+  write(key, value) {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  remove(key) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      /* nothing to do — the draft simply outlives the session */
+    }
+  },
+};
 export default function FeedbackForm({ batchId, session, onSubmitted }) {
   const params = session?.parameters || [];
   const classes = session?.classes || [];
 
+  const key = draftKey(batchId, session?.round);
+
   // classId -> { ratings: { paramId: stars }, comment }
-  const [data, setData] = useState(() =>
-    Object.fromEntries(classes.map((c) => [c.id, { ratings: {}, comment: '' }]))
-  );
+  const [data, setData] = useState(() => {
+    const blank = Object.fromEntries(classes.map((c) => [c.id, { ratings: {}, comment: '' }]));
+    const saved = safeStorage.read(key);
+    if (!saved) return blank;
+    /* Merge rather than trust: the saved draft may predate a change to the
+       batch's classes or the parameter set, so only keys that still exist are
+       adopted and anything unknown is dropped. */
+    const merged = { ...blank };
+    for (const c of classes) {
+      const from = saved[c.id];
+      if (!from) continue;
+      const ratings = {};
+      for (const prm of params) {
+        const v = from.ratings?.[prm._id];
+        if (Number.isInteger(v) && v >= 1 && v <= 5) ratings[prm._id] = v;
+      }
+      merged[c.id] = { ratings, comment: typeof from.comment === 'string' ? from.comment : '' };
+    }
+    return merged;
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [restored, setRestored] = useState(false);
+
+  // Announce a restored draft once, so the student understands why the form is
+  // pre-filled rather than wondering whether it submitted already.
+  const checkedRestore = useRef(false);
+  useEffect(() => {
+    if (checkedRestore.current) return;
+    checkedRestore.current = true;
+    const saved = safeStorage.read(key);
+    if (!saved) return;
+    const hasContent = Object.values(saved).some(
+      (v) => Object.keys(v?.ratings || {}).length > 0 || (v?.comment || '').trim().length > 0
+    );
+    if (hasContent) setRestored(true);
+  }, [key]);
+
+  // Persist on every change. Cheap enough to do synchronously: the payload is
+  // a few hundred bytes and writes are only as frequent as taps.
+  useEffect(() => {
+    if (busy) return; // don't re-save while a submit is in flight
+    safeStorage.write(key, data);
+  }, [data, key, busy]);
+
+  const clearDraft = useCallback(() => safeStorage.remove(key), [key]);
 
   const setStar = (classId, paramId, stars) =>
     setData((d) => ({ ...d, [classId]: { ...d[classId], ratings: { ...d[classId].ratings, [paramId]: stars } } }));
@@ -89,18 +175,73 @@ export default function FeedbackForm({ batchId, session, onSubmitted }) {
         fingerprint: lightweightFingerprint(),
         sessionToken: session?.sessionToken,
       });
+      clearDraft();
       onSubmitted({ ...res, ok: true });
     } catch (err) {
-      // Duplicate / cap → route to the thank-you screen with the reason.
-      if (err.code === 'DEVICE_LOCKED') return onSubmitted({ alreadyRecorded: true });
-      if (err.code === 'CAP_REACHED') return onSubmitted({ capReached: true });
-      setError(err.message || 'Could not submit. Please try again.');
+      /* Terminal outcomes — the answers can never be submitted, so the draft
+         is cleared too rather than left to pre-fill a form that will only be
+         refused again. */
+      if (err.code === 'DEVICE_LOCKED') {
+        clearDraft();
+        return onSubmitted({ alreadyRecorded: true });
+      }
+      if (err.code === 'CAP_REACHED') {
+        clearDraft();
+        return onSubmitted({ capReached: true });
+      }
+      /* Recoverable — keep the draft. The session expiring or the batch being
+         reopened means "go round again", not "your answers are gone". */
+      if (err.code === 'SESSION_EXPIRED' || err.code === 'ROUND_CHANGED') {
+        setError(
+          'Your session timed out. Your answers are saved on this device — re-enter the passcode and they will be waiting.'
+        );
+      } else if (err.code === 'RATE_LIMITED') {
+        setError('Too many attempts from this device. Wait a few seconds and submit again.');
+      } else if (err.code === 'STALE_FORM') {
+        setError('This form is out of date. Please reload the page and re-enter the passcode.');
+      } else {
+        setError(err.message || 'Could not submit. Please try again.');
+      }
       setBusy(false);
     }
   };
 
   return (
     <form onSubmit={submit} className="space-y-3.5" noValidate>
+      {/* A pre-filled form is confusing unless we say why. Dismissible, and
+          offers a way to start over — a student who wants a clean slate should
+          not have to clear their browser storage to get one. */}
+      {restored && (
+        <div
+          role="status"
+          className="flex items-start gap-2.5 rounded-xl bg-brand-500/10 px-3.5 py-2.5 text-xs ring-1 ring-inset ring-brand-500/20"
+        >
+          <Icon name="refresh" size={14} className="mt-0.5 shrink-0 text-brand-600 dark:text-brand-400" />
+          <span className="flex-1 text-ink">
+            We restored the answers you had already entered on this device.
+            <button
+              type="button"
+              onClick={() => {
+                setData(Object.fromEntries(classes.map((c) => [c.id, { ratings: {}, comment: '' }])));
+                clearDraft();
+                setRestored(false);
+              }}
+              className="ml-1.5 font-semibold text-brand-700 underline decoration-dotted underline-offset-2 dark:text-brand-300"
+            >
+              Start fresh
+            </button>
+          </span>
+          <button
+            type="button"
+            onClick={() => setRestored(false)}
+            aria-label="Dismiss"
+            className="shrink-0 text-subtle hover:text-ink"
+          >
+            <Icon name="x" size={13} />
+          </button>
+        </div>
+      )}
+
       {/* ── Sticky progress ───────────────────────────────────────────────── */}
       <div className="sticky top-0 z-10 -mx-1 px-1 pb-1 pt-1">
         <div className="card border-line/80 p-3.5 shadow-card backdrop-blur supports-[backdrop-filter]:bg-card/85">
@@ -167,7 +308,20 @@ export default function FeedbackForm({ batchId, session, onSubmitted }) {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-bold text-ink">{c.name}</p>
-                {c.trainerName && <p className="truncate text-[11px] text-muted">{c.trainerName}</p>}
+                {/* Who taught this session. Main and support are labelled
+                    separately: a student rating "the class" should know whose
+                    work they are describing. */}
+                {(c.mainMentors?.length > 0 || c.supportMentors?.length > 0) && (
+                  <p className="truncate text-[11px] text-muted">
+                    {c.mainMentors?.length > 0 && <span>{c.mainMentors.join(', ')}</span>}
+                    {c.supportMentors?.length > 0 && (
+                      <span className="text-subtle">
+                        {c.mainMentors?.length > 0 ? ' · with ' : 'with '}
+                        {c.supportMentors.join(', ')}
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
               <span
                 className={`tnum shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
