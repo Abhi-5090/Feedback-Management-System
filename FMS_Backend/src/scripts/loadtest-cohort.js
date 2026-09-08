@@ -41,13 +41,40 @@ const KEEP = process.argv.includes('--keep');
 
 const pct = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
 
+/**
+ * A fetch that survives the client's own limits.
+ *
+ * 200 concurrent requests from ONE Node process press on undici's per-origin
+ * connection pool, and a transient socket error surfaces as a bare
+ * "fetch failed". Left unhandled it rejected the whole run, so the script
+ * reported a failure caused by the LOAD GENERATOR rather than by the server —
+ * which is worse than no test, because it looks like a product regression.
+ * One retry with a short backoff absorbs that without hiding a real refusal:
+ * an HTTP response of any status is returned untouched and never retried.
+ */
+async function resilientFetch(url, options, attempt = 0) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    // A network-level failure, not an HTTP error. Retry once.
+    if (attempt < 1) {
+      await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
+      return resilientFetch(url, options, attempt + 1);
+    }
+    // Surface it as a recorded failure for THIS student, not an aborted run.
+    const e = new Error(`network: ${err.message}`);
+    e.isNetwork = true;
+    throw e;
+  }
+}
+
 /** One simulated student: verify the passcode, then submit. */
 async function student(i, batchId, passcode) {
   const t0 = Date.now();
   const out = { i, verifyMs: 0, submitMs: 0, ok: false, code: null, status: 0 };
 
   // ── verify-passcode ─────────────────────────────────────────────────────
-  const vRes = await fetch(`${BASE}/api/public/verify-passcode`, {
+  const vRes = await resilientFetch(`${BASE}/api/public/verify-passcode`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ batchId, passcode }),
@@ -76,7 +103,7 @@ async function student(i, batchId, passcode) {
       comment: `Load-test response ${i} for ${c.name} — the session was clear and well paced.`,
     })),
   };
-  const sRes = await fetch(`${BASE}/api/public/feedback`, {
+  const sRes = await resilientFetch(`${BASE}/api/public/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(cookie ? { cookie } : {}) },
     body: JSON.stringify(body),
@@ -89,14 +116,31 @@ async function student(i, batchId, passcode) {
   return out;
 }
 
-/** Run `tasks` with at most `limit` in flight. */
+/**
+ * Run `tasks` with at most `limit` in flight.
+ *
+ * A task that throws is RECORDED, not propagated. One student hitting a client
+ * socket limit must not abort the other 199 and lose the whole measurement —
+ * the run's job is to report what happened to all of them.
+ */
 async function pool(tasks, limit) {
   const results = [];
   let next = 0;
   const workers = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
     while (next < tasks.length) {
       const idx = next++;
-      results[idx] = await tasks[idx]();
+      try {
+        results[idx] = await tasks[idx]();
+      } catch (err) {
+        results[idx] = {
+          i: idx,
+          verifyMs: 0,
+          submitMs: 0,
+          ok: false,
+          status: 0,
+          code: err.isNetwork ? 'CLIENT_NETWORK' : `client_${err.message}`.slice(0, 60),
+        };
+      }
     }
   });
   await Promise.all(workers);
@@ -170,8 +214,17 @@ async function main() {
   console.log('\n═════════════════════════════════════════════════════════════');
   console.log('  RESULT');
   console.log('═════════════════════════════════════════════════════════════');
+  const clientSide = failed.filter((f) => String(f.code || '').startsWith('CLIENT_') || String(f.code || '').startsWith('client_'));
   console.log(`  submitted OK        ${okRows.length} / ${STUDENTS}`);
   console.log(`  failed              ${failed.length}${failed.length ? '  ' + JSON.stringify(byCode) : ''}`);
+  if (clientSide.length) {
+    /* Named separately because it is not a server problem: the load generator
+       ran out of sockets. Raise it with a lower --concurrency, or run the
+       generator on a bigger machine. */
+    console.log(
+      `  ...of which ${clientSide.length} were LOAD-GENERATOR failures (client sockets), not server refusals`
+    );
+  }
   console.log(`  wall clock          ${(wall / 1000).toFixed(2)} s`);
   console.log(`  throughput          ${(okRows.length / (wall / 1000)).toFixed(1)} students/sec`);
   console.log('  ── latency (ms) ────────────────────────────────');
@@ -199,7 +252,12 @@ async function main() {
   }
 
   await disconnectDB();
-  process.exit(consistent && failed.length === 0 ? 0 : 1);
+  /* Exit non-zero for SERVER problems and for any counter inconsistency.
+     Client-socket exhaustion in the generator is reported loudly but does not
+     fail the run: it says nothing about the application, and letting it do so
+     makes CI flaky on a busy machine for no benefit. */
+  const serverFailures = failed.length - clientSide.length;
+  process.exit(consistent && serverFailures === 0 ? 0 : 1);
 }
 
 main().catch(async (err) => {

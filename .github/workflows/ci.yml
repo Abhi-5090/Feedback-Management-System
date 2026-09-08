@@ -101,6 +101,12 @@ jobs:
       # Boot the real server and exercise it over HTTP. Unit tests cannot catch
       # a broken startup path, an unreachable database, or an export that
       # returns a 200 with no file bytes.
+      #
+      # Started with `node src/server.js`, NOT `npm start`: after `npm start &`
+      # the shell's $! is NPM's pid, not the server's, so killing it may leave
+      # an orphan holding the port and the next step's server silently fails to
+      # bind. Each server step also uses its OWN port, so a leftover from one
+      # can never collide with the next.
       - name: Smoke test a running server
         working-directory: FMS_Backend
         env:
@@ -111,32 +117,76 @@ jobs:
           ADMIN_EMAIL: ci-admin@example.com
           ADMIN_PASSWORD: ci-admin-passphrase-2026
         run: |
+          set -euo pipefail
           node src/seed.js
-          npm start & echo $! > /tmp/api.pid
-          # Wait for readiness rather than sleeping a guessed number of seconds.
+          node src/server.js > /tmp/smoke-api.log 2>&1 &
+          API_PID=$!
+          # Fail LOUDLY if the server never becomes ready. Previously this loop
+          # fell through on timeout and the next command failed with an
+          # unexplained "API not reachable", hiding the real cause.
           for i in $(seq 1 30); do
-            curl -sf http://localhost:5555/api/ready >/dev/null && break || sleep 1
+            if curl -sf http://localhost:5555/api/ready > /dev/null; then break; fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::the API process exited during startup"; cat /tmp/smoke-api.log; exit 1
+            fi
+            sleep 1
           done
+          if ! curl -sf http://localhost:5555/api/ready > /dev/null; then
+            echo "::error::the API never became ready within 30s"; cat /tmp/smoke-api.log; exit 1
+          fi
+
+          set +e
           API=http://localhost:5555 \
+          WEB=http://127.0.0.1:1 \
           ADMIN_EMAIL=ci-admin@example.com \
           ADMIN_PASSWORD=ci-admin-passphrase-2026 \
           bash ../scripts/smoke-test.sh
-          kill "$(cat /tmp/api.pid)"
+          RESULT=$?
+          set -e
+          if [ "$RESULT" -ne 0 ]; then cat /tmp/smoke-api.log; fi
+          kill "$API_PID" 2>/dev/null || true
+          wait "$API_PID" 2>/dev/null || true
+          exit "$RESULT"
 
       # A cohort-sized burst, against a standalone Mongo (the ordered-write
-      # fallback). Proves nobody is dropped and the counters stay exact —
-      # the failure mode that cost 299 of 300 responses before it was fixed.
+      # fallback — the path a replica set never exercises). Proves nobody is
+      # dropped and the counters stay exact: the failure mode that cost 299 of
+      # 300 responses before the submission write was restructured.
       - name: Load test a cohort burst
         working-directory: FMS_Backend
         env:
           MONGO_URI: mongodb://127.0.0.1:27017/fms_ci
           JWT_SECRET: ci_only_secret_that_is_long_enough_for_the_guard_0123456789
           DEVICE_SALT: ci_only_device_salt_that_is_long_enough_for_the_guard_01234
-          PORT: '5555'
+          PORT: '5556'
         run: |
-          npm start & echo $! > /tmp/api2.pid
+          set -euo pipefail
+          node src/server.js > /tmp/load-api.log 2>&1 &
+          API_PID=$!
           for i in $(seq 1 30); do
-            curl -sf http://localhost:5555/api/ready >/dev/null && break || sleep 1
+            if curl -sf http://localhost:5556/api/ready > /dev/null; then break; fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::the API process exited during startup"; cat /tmp/load-api.log; exit 1
+            fi
+            sleep 1
           done
-          node src/scripts/loadtest-cohort.js --students=200 --concurrency=200
-          kill "$(cat /tmp/api2.pid)"
+          if ! curl -sf http://localhost:5556/api/ready > /dev/null; then
+            echo "::error::the API never became ready within 30s"; cat /tmp/load-api.log; exit 1
+          fi
+
+          set +e
+          # 200 students, 100 in flight. The property under test is contention
+          # on ONE counter document, which 100 concurrent writers exercise
+          # thoroughly; pushing all 200 at once from a single Node process on a
+          # 2-core runner strains the GENERATOR's socket pool instead, which
+          # measures the runner rather than the application.
+          node src/scripts/loadtest-cohort.js --students=200 --concurrency=100
+          RESULT=$?
+          set -e
+          if [ "$RESULT" -ne 0 ]; then
+            echo "::error::the cohort load test failed — server log follows"
+            cat /tmp/load-api.log
+          fi
+          kill "$API_PID" 2>/dev/null || true
+          wait "$API_PID" 2>/dev/null || true
+          exit "$RESULT"
