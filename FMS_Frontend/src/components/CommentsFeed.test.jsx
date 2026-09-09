@@ -73,6 +73,33 @@ describe('CommentsFeed', () => {
     });
   });
 
+  it('puts the dropdowns in the card header, on the title row', () => {
+    render(
+      <CommentsFeed
+        comments={page1}
+        total={132}
+        title="Comments across this batch"
+        filterOptions={{
+          batches: [{ id: 'b1', name: 'Batch A' }, { id: 'b2', name: 'Batch B' }],
+          classes: [{ id: 'c1', name: 'GenAI' }, { id: 'c2', name: 'Coding' }],
+        }}
+      />
+    );
+
+    const heading = screen.getByRole('heading', { name: /Comments across this batch/i });
+    const header = heading.closest('header');
+    expect(header).toBeTruthy();
+
+    /* Both selects must live in the SAME header element as the title, which is
+       what puts them on its row and aligned right. A strip above the list —
+       the previous layout — would place them outside it. */
+    expect(header).toContainElement(screen.getByLabelText(/Filter comments by batch/i));
+    expect(header).toContainElement(screen.getByLabelText(/Filter comments by class/i));
+
+    // And the labelled "Narrow to" strip is gone entirely.
+    expect(screen.queryByText(/narrow to/i)).not.toBeInTheDocument();
+  });
+
   it('offers no dropdown when there is only one option to pick', () => {
     render(
       <CommentsFeed

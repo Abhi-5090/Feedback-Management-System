@@ -8,7 +8,6 @@ import PageHeader from '../components/PageHeader.jsx';
 import { SkeletonBlock } from '../components/Spinner.jsx';
 import Icon from '../components/Icon.jsx';
 import InfoTooltip from '../components/InfoTooltip.jsx';
-import { MentorRosterBadges } from '../components/MentorRosterPicker.jsx';
 
 /**
  * Feedbacks — one card per SESSION, a session being a (batch, subject) pair.

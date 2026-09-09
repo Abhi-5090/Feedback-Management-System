@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { AnalyticsAPI } from '../api/endpoints.js';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useToast } from './Toast.jsx';
 import Card, { EmptyState } from './Card.jsx';

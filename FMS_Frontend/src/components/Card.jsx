@@ -21,8 +21,12 @@ export default function Card({
     <section
       className={`${interactive ? 'card-interactive' : 'panel'} overflow-hidden ${className}`}
     >
+      {/* The header wraps: a card carrying controls (a filter pair, a sort)
+          drops them onto their own line on a narrow screen rather than
+          squeezing the title away. `actions` is shrink-0, so without wrapping
+          the title loses every pixel of the contest. */}
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+        <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line px-5 py-4">
           <div className="min-w-0">
             <h3 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink">
               {icon && (

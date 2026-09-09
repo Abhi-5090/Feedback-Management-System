@@ -4,7 +4,6 @@ import Card, { EmptyState } from './Card.jsx';
 import StarRating from './StarRating.jsx';
 import Pagination from './Pagination.jsx';
 import Icon from './Icon.jsx';
-import InfoTooltip from './InfoTooltip.jsx';
 
 const PER_PAGE = 20;
 
@@ -140,82 +139,89 @@ export default function CommentsFeed({
 
   const busyOrLoading = busy || loading;
 
-  return (
-    <Card title={title} icon="message" subtitle={subtitle} hint={hint || undefined}>
-      {/* ── Filters ─────────────────────────────────────────────────────── */}
-      {hasFilters && (
-        <div className="mb-3 flex flex-wrap items-end gap-2 border-b border-line pb-3">
-          <span className="flex items-center gap-1 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
-            <Icon name="filter" size={12} />
-            Narrow to
-            <InfoTooltip text="A batch running several subjects interleaves their comments. Pick one to read that subject's feedback on its own." />
-          </span>
-
-          {(filterOptions?.batches?.length || 0) > 1 && (
-            <div className="flex w-full min-w-0 flex-col gap-1 sm:w-auto">
-              <label htmlFor="cf-batch" className="sr-only">
-                Filter comments by batch
-              </label>
-              <select
-                id="cf-batch"
-                className="input !h-9 !py-1.5 text-xs sm:w-auto"
-                value={batchId}
-                onChange={(e) => {
-                  setBatchId(e.target.value);
-                  setPage(1);
-                }}
-              >
-                <option value="">All batches</option>
-                {filterOptions.batches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {(filterOptions?.classes?.length || 0) > 1 && (
-            <div className="flex w-full min-w-0 flex-col gap-1 sm:w-auto">
-              <label htmlFor="cf-class" className="sr-only">
-                Filter comments by class
-              </label>
-              <select
-                id="cf-class"
-                className="input !h-9 !py-1.5 text-xs sm:w-auto"
-                value={classId}
-                onChange={(e) => {
-                  setClassId(e.target.value);
-                  setPage(1);
-                }}
-              >
-                <option value="">All subjects</option>
-                {filterOptions.classes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {filtersActive && (
-            <button
-              type="button"
-              className="btn-ghost !px-2.5 !py-1.5 text-xs"
-              onClick={() => {
-                setBatchId('');
-                setClassId('');
-                setPage(1);
-              }}
-            >
-              <Icon name="x" size={12} />
-              Clear
-            </button>
-          )}
-        </div>
+  /* The filters live in the CARD HEADER, on the same row as the title and
+     aligned right. A labelled "Narrow to" strip above the list read as a
+     second heading competing with the real one, and cost a row of height in a
+     panel whose whole problem was being too short to read. */
+  const controls = hasFilters ? (
+    <>
+      {(filterOptions?.batches?.length || 0) > 1 && (
+        <>
+          <label htmlFor="cf-batch" className="sr-only">
+            Filter comments by batch
+          </label>
+          <select
+            id="cf-batch"
+            className="input !h-8 w-auto !py-1 text-xs"
+            value={batchId}
+            onChange={(e) => {
+              setBatchId(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All batches</option>
+            {filterOptions.batches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </>
       )}
 
+      {(filterOptions?.classes?.length || 0) > 1 && (
+        <>
+          <label htmlFor="cf-class" className="sr-only">
+            Filter comments by class
+          </label>
+          <select
+            id="cf-class"
+            className="input !h-8 w-auto !py-1 text-xs"
+            value={classId}
+            onChange={(e) => {
+              setClassId(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All subjects</option>
+            {filterOptions.classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
+      {filtersActive && (
+        <button
+          type="button"
+          className="btn-ghost !px-2 !py-1.5 text-xs"
+          onClick={() => {
+            setBatchId('');
+            setClassId('');
+            setPage(1);
+          }}
+          aria-label="Clear the comment filters"
+          title="Clear filters"
+        >
+          <Icon name="x" size={13} />
+        </button>
+      )}
+    </>
+  ) : null;
+
+  return (
+    <Card
+      title={title}
+      icon="message"
+      subtitle={subtitle}
+      hint={
+        hint ||
+        'Anonymous comments, each with its overall rating. No student identity is attached — comments can never be traced back to a person.'
+      }
+      actions={controls}
+    >
       {failed && (
         <p className="mb-3 flex items-center gap-1.5 rounded-xl bg-rose-500/10 px-3 py-2 text-xs text-rose-700 ring-1 ring-inset ring-rose-500/20 dark:text-rose-400">
           <Icon name="alert" size={12} />
