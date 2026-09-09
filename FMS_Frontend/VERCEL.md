@@ -33,12 +33,14 @@ change.
 
 ## Setting it up
 
-Replace the destination host with your Render URL:
+The destination is already set to this deployment's API:
 
 ```json
 { "source": "/api/:path*",
-  "destination": "https://YOUR-SERVICE.onrender.com/api/:path*" }
+  "destination": "https://fms-api-dzuv.onrender.com/api/:path*" }
 ```
+
+Change it if the Render service is ever renamed or replaced.
 
 Leave `VITE_API_URL` **unset** in Vercel's environment variables. The axios
 client falls back to a relative `/api`, which is exactly what the rewrite
