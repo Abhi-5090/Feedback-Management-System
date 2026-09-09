@@ -21,6 +21,8 @@ import {
   trendOverTime,
   recentComments,
   commentsMatching,
+  commentTotal,
+  batchCollections,
   classYearGroupBreakdown,
   sessionCards,
   yearGroupCards,
@@ -58,12 +60,23 @@ function resolveRole(req) {
  */
 async function resolveMatch(req, { scopeTrainerId, classId, batchId } = {}) {
   const q = req.query;
+  /* `round` selects ONE collection — the feedback taken in a single window.
+     Parsed here rather than trusted: an unparseable value must mean "all
+     rounds", not "round NaN", which would match nothing and look like data
+     loss. */
+  const roundRaw = q.round;
+  const round =
+    roundRaw !== undefined && roundRaw !== '' && Number.isInteger(Number(roundRaw))
+      ? Number(roundRaw)
+      : undefined;
+
   const base = buildFeedbackMatch({
     scopeTrainerId,
     role: resolveRole(req),
     classId: classId ?? q.classId,
     batchId: batchId ?? q.batchId,
     trainerId: q.trainerId,
+    round,
     from: q.from,
     to: q.to,
   });
@@ -74,15 +87,33 @@ async function resolveMatch(req, { scopeTrainerId, classId, batchId } = {}) {
   return andMatch(base, { batch: { $in: cohortBatchIds } });
 }
 
-/** Assemble the standard analytics payload for a given Feedback match. */
+/**
+ * Assemble the standard analytics payload for a given Feedback match.
+ *
+ * `comments` is the FIRST PAGE, not the whole set, and `commentTotal` says how
+ * many there are. The page used to be a bare 30 with no total, so a batch with
+ * 66 responses displayed 30 comments and looked like it had only 30 — the rest
+ * were reachable nowhere. The client pages through the rest via
+ * GET /api/analytics/comments, which has always been paginated.
+ */
+const COMMENT_PAGE_SIZE = 50;
+
 async function analyticsPayload(match) {
-  const [perParameter, overall, trend, comments] = await Promise.all([
+  const [perParameter, overall, trend, comments, totalComments] = await Promise.all([
     perParameterAverages(match),
     overallStats(match),
     trendOverTime(match),
-    recentComments(match, 30),
+    recentComments(match, COMMENT_PAGE_SIZE),
+    commentTotal(match),
   ]);
-  return { ...overall, perParameter, trend, comments };
+  return {
+    ...overall,
+    perParameter,
+    trend,
+    comments,
+    commentTotal: totalComments,
+    commentPageSize: COMMENT_PAGE_SIZE,
+  };
 }
 
 /**
@@ -326,6 +357,13 @@ export const batchAnalytics = asyncHandler(async (req, res) => {
         role: resolveRole(req),
         batchId: batch._id,
         classId,
+        // Same round as the header, or the breakdown would contradict it.
+        round:
+          req.query.round !== undefined &&
+          req.query.round !== '' &&
+          Number.isInteger(Number(req.query.round))
+            ? Number(req.query.round)
+            : undefined,
       });
       const [overall, perParameter] = await Promise.all([
         overallStats(cMatch),
@@ -341,7 +379,22 @@ export const batchAnalytics = asyncHandler(async (req, res) => {
     })
   );
 
+  /* Every collection this batch has run, so the page can offer them as a
+     dropdown. Deliberately NOT narrowed by ?round= — it is the navigation, so
+     it always lists every window, including the one not currently selected. */
+  const collections = await batchCollections({
+    batchId: batch._id,
+    scopeTrainerId,
+    classId: req.query.classId || undefined,
+  });
+  const selectedRound =
+    req.query.round !== undefined && req.query.round !== '' && Number.isInteger(Number(req.query.round))
+      ? Number(req.query.round)
+      : null;
+
   res.json({
+    collections,
+    selectedRound,
     batch: {
       id: String(batch._id),
       name: batch.name,

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { DashboardAPI } from '../../api/endpoints.js';
+import { AnalyticsAPI, DashboardAPI } from '../../api/endpoints.js';
 import { usePolling } from '../../hooks/usePolling.js';
 import { useToast } from '../../components/Toast.jsx';
 import StatTile from '../../components/StatTile.jsx';
@@ -147,7 +147,14 @@ export default function AdminDashboard() {
 
           <ThemesPanel />
 
-          <CommentsFeed comments={data.comments} />
+          <CommentsFeed
+            comments={data.comments}
+            total={data.commentTotal}
+            pageSize={data.commentPageSize}
+            loadPage={(page) =>
+              AnalyticsAPI.comments({ page, limit: data.commentPageSize || 50 }).then((r) => r.comments)
+            }
+          />
         </>
       )}
     </div>

@@ -5,7 +5,10 @@ import BatchFeedbackView from '../../components/BatchFeedbackView.jsx';
 
 export default function TrainerBatchFeedback() {
   const { batchId } = useParams();
-  const fetcher = useCallback(() => AnalyticsAPI.batch(batchId), [batchId]);
+  /* Takes the params the view supplies — { round } when a collection is
+     selected — so switching weeks refetches through the same path rather than
+     needing its own request plumbing. */
+  const fetcher = useCallback((params) => AnalyticsAPI.batch(batchId, params), [batchId]);
   return (
     <BatchFeedbackView
       fetcher={fetcher}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AnalyticsAPI } from '../api/endpoints.js';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useToast } from './Toast.jsx';
 import Card, { EmptyState } from './Card.jsx';
@@ -6,6 +7,7 @@ import StatTile from './StatTile.jsx';
 import { SkeletonBlock } from './Spinner.jsx';
 import ExportButtons from './ExportButtons.jsx';
 import CommentsFeed from './CommentsFeed.jsx';
+import CollectionPicker, { Reloading } from './CollectionPicker.jsx';
 import ParamBarChart from './charts/ParamBarChart.jsx';
 import TrendLineChart from './charts/TrendLineChart.jsx';
 import Icon from './Icon.jsx';
@@ -149,6 +151,15 @@ export default function BatchFeedbackView({ fetcher, exportPath, exportName, bac
   const backTarget = location.state?.from || backTo;
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  /* Which collection window to show; null means all of them combined.
+     Held here rather than by the page so the picker and the data it drives
+     cannot get out of step. */
+  const [round, setRound] = useState(null);
+  /* Distinct from `data === null`. A first load has nothing to show and gets a
+     skeleton; switching collections still has the previous week's real numbers
+     on screen, so it gets a dim-and-spin instead — replacing live figures with
+     grey blocks makes a 300ms fetch feel like a page rebuild. */
+  const [refetching, setRefetching] = useState(false);
 
   /* The fetcher is held in a ref and the effect is keyed on `reloadKey`, not on
      the function identity.
@@ -161,25 +172,41 @@ export default function BatchFeedbackView({ fetcher, exportPath, exportName, bac
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
+  /* A round change is a REFETCH, not a fresh mount: keep the old data visible
+     and dimmed. Tracked in a ref so the effect can tell the two apart without
+     taking `data` as a dependency, which would re-run it on every load. */
+  const mountedFor = useRef(null);
+
   useEffect(() => {
     let alive = true;
-    setData(null);
+    const isSwitch = mountedFor.current === reloadKey;
+    if (isSwitch) setRefetching(true);
+    else {
+      setData(null);
+      setRound(null); // a different batch starts from "all collections"
+    }
     setError(null);
+
     (async () => {
       try {
-        const d = await fetcherRef.current();
-        if (alive) setData(d);
+        const d = await fetcherRef.current(round != null ? { round } : {});
+        if (!alive) return;
+        setData(d);
+        mountedFor.current = reloadKey;
       } catch (e) {
         if (!alive) return;
         setError(e.message);
         toast.error(e.message);
+      } finally {
+        if (alive) setRefetching(false);
       }
     })();
     return () => {
       alive = false;
     };
-    // toast is a stable context value; reloadKey identifies WHAT to load.
-  }, [reloadKey, toast]);
+    // toast is a stable context value; reloadKey identifies WHAT to load and
+    // `round` WHICH collection of it.
+  }, [reloadKey, round, toast]);
 
   if (error) {
     return (
@@ -233,13 +260,34 @@ export default function BatchFeedbackView({ fetcher, exportPath, exportName, bac
           <p className="mt-0.5 text-sm text-muted">
             <span className="tnum font-medium text-ink">{b?.classCount}</span>{' '}
             {b?.classCount === 1 ? 'class' : 'classes'} ·{' '}
-            <span className="tnum font-medium text-ink">{b?.submittedCount}</span>
-            {' / '}
-            {b?.expectedCount || '∞'} responses
+            {/* When one collection is selected, quote ITS responses — the
+                batch's running total would contradict every figure below. */}
+            <span className="tnum font-medium text-ink">
+              {round != null
+                ? (data.collections || []).find((c) => c.round === round)?.responses ?? 0
+                : b?.submittedCount}
+            </span>
+            {round != null ? ' responses in this collection' : ` / ${b?.expectedCount || '∞'} responses`}
           </p>
         </div>
         <ExportButtons path={exportPath} baseName={exportName} />
       </div>
+
+      {/* Which week's feedback to look at. Above everything it scopes, so it is
+          obvious the numbers below belong to the chosen collection. */}
+      {(data.collections || []).length > 0 && (
+        <div className="card p-3 sm:p-4">
+          <CollectionPicker
+            collections={data.collections}
+            value={round}
+            onChange={setRound}
+            loading={refetching}
+          />
+        </div>
+      )}
+
+      <Reloading active={refetching}>
+        <div className="space-y-5">
 
       {/* Batch-level KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -288,7 +336,23 @@ export default function BatchFeedbackView({ fetcher, exportPath, exportName, bac
         </Card>
       </div>
 
-      <CommentsFeed comments={data.comments} title="Comments across this batch" />
+      <CommentsFeed
+        comments={data.comments}
+        total={data.commentTotal}
+        pageSize={data.commentPageSize}
+        loading={refetching}
+        loadPage={(page) =>
+          AnalyticsAPI.comments({
+            batchId: data.batch.id,
+            page,
+            limit: data.commentPageSize || 50,
+            ...(round != null ? { round } : {}),
+          }).then((r) => r.comments)
+        }
+        title="Comments across this batch"
+      />
+        </div>
+      </Reloading>
     </div>
   );
 }

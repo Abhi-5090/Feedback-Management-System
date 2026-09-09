@@ -6,7 +6,7 @@ import ClassFeedbackView from '../../components/ClassFeedbackView.jsx';
 export default function TrainerClassFeedback() {
   const { classId } = useParams();
   // The API enforces that this trainer owns the class (403 otherwise).
-  const fetcher = useCallback(() => AnalyticsAPI.class(classId), [classId]);
+  const fetcher = useCallback((params) => AnalyticsAPI.class(classId, params), [classId]);
   // basePath lets the year-group breakdown deep-link into each batch
   // under the right role prefix.
   return (

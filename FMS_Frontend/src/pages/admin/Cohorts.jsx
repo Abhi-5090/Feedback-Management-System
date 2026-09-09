@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import ScrollHint from '../../components/ScrollHint.jsx';
 import { AnalyticsAPI, downloadExport } from '../../api/endpoints.js';
 import { useToast } from '../../components/Toast.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
@@ -119,20 +120,20 @@ export default function Cohorts() {
             Create a batch and give it a year group to see cohorts here.
           </EmptyState>
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollHint>
             <table className="w-full min-w-[44rem] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line bg-surface-2">
-                  <th className="th text-left">Year group</th>
-                  <th className="th text-left">Batches</th>
-                  <th className="th text-left">
+                  <th className="th">Year group</th>
+                  <th className="th">Batches</th>
+                  <th className="th">
                     <span className="inline-flex items-center gap-1.5">
                       Response rate
                       <InfoTooltip text="Students who responded, against the total expected cohort size of every batch in this year group that has a cap set." />
                     </span>
                   </th>
-                  <th className="th text-left">Responses</th>
-                  <th className="th text-left">Avg rating</th>
+                  <th className="th">Responses</th>
+                  <th className="th">Avg rating</th>
                 </tr>
               </thead>
               <tbody>
@@ -158,7 +159,7 @@ export default function Cohorts() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollHint>
         )}
       </Card>
 
@@ -215,26 +216,26 @@ export default function Cohorts() {
             Add mentors, then staff them on a batch.
           </EmptyState>
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollHint>
             <table className="w-full min-w-[52rem] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line bg-surface-2">
-                  <th className="th text-left">Mentor</th>
-                  <th className="th text-left">
+                  <th className="th">Mentor</th>
+                  <th className="th">
                     <span className="inline-flex items-center gap-1.5">
                       <Icon name="user-check" size={12} />
                       Delivers
                     </span>
                   </th>
-                  <th className="th text-left">Avg as main</th>
-                  <th className="th text-left">
+                  <th className="th">Avg as main</th>
+                  <th className="th">
                     <span className="inline-flex items-center gap-1.5">
                       <Icon name="users" size={12} />
                       Assists
                     </span>
                   </th>
-                  <th className="th text-left">Avg as support</th>
-                  <th className="th text-left">Deployment</th>
+                  <th className="th">Avg as support</th>
+                  <th className="th">Deployment</th>
                 </tr>
               </thead>
               <tbody>
@@ -273,7 +274,7 @@ export default function Cohorts() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollHint>
         )}
       </Card>
     </div>

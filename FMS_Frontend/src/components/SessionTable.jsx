@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import ScrollHint from './ScrollHint.jsx';
 import Icon from './Icon.jsx';
 import InfoTooltip from './InfoTooltip.jsx';
 import { MentorRosterBadges } from './MentorRosterPicker.jsx';
@@ -26,22 +27,22 @@ export default function SessionTable({ sessions, basePath, emptyHint }) {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <ScrollHint>
       <table className="w-full min-w-[56rem] border-collapse text-sm">
         <thead>
           <tr className="border-b border-line bg-surface-2">
-            <th className="th text-left">Batch</th>
-            <th className="th text-left">Subject</th>
-            <th className="th text-left">
+            <th className="th">Batch</th>
+            <th className="th">Subject</th>
+            <th className="th">
               <span className="inline-flex items-center gap-1.5">
                 Mentors
                 <InfoTooltip text="Assigned per batch, not per subject — the same subject runs with different teams for different cohorts. Orange is the main mentor who delivers it; violet assists." />
               </span>
             </th>
-            <th className="th text-left">Status</th>
-            <th className="th text-left">Answered</th>
-            <th className="th text-left">Rating</th>
-            <th className="th text-right">Feedback</th>
+            <th className="th">Status</th>
+            <th className="th">Answered</th>
+            <th className="th">Rating</th>
+            <th className="th">Feedback</th>
           </tr>
         </thead>
         <tbody>
@@ -127,6 +128,6 @@ export default function SessionTable({ sessions, basePath, emptyHint }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollHint>
   );
 }

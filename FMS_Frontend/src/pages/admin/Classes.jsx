@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import ScrollHint from '../../components/ScrollHint.jsx';
 import { useSearchParams } from 'react-router-dom';
 import { AnalyticsAPI, ClassesAPI } from '../../api/endpoints.js';
 import { useToast } from '../../components/Toast.jsx';
@@ -239,18 +240,18 @@ export default function Classes() {
               Add the things you teach — C Programming, GenAI, and so on.
             </EmptyState>
           ) : (
-            <div className="overflow-x-auto">
+            <ScrollHint>
               <table className="w-full min-w-[38rem] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-line bg-surface-2">
-                    <th className="th text-left">Subject</th>
-                    <th className="th text-left">
+                    <th className="th">Subject</th>
+                    <th className="th">
                       <span className="inline-flex items-center gap-1.5">
                         Used by
                         <InfoTooltip text="How many batches run this subject, and in which year groups. Mentors are assigned per batch, so they are not shown here." />
                       </span>
                     </th>
-                    <th className="th text-right">Actions</th>
+                    <th className="th">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -305,7 +306,7 @@ export default function Classes() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </ScrollHint>
           )}
         </Card>
       )}

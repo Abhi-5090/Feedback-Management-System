@@ -97,7 +97,12 @@ export default function StarRating({
   };
 
   return (
-    <div className="flex items-center gap-3">
+    /* flex-wrap, not a rigid row. Five 30px stars plus their padding, gaps and
+       the fixed-width label came to ~294px, and a 360px phone leaves about 292
+       inside the card and list padding — so the row overflowed by a hair on
+       common Android widths and by more on a 320px screen. Wrapping lets the
+       word drop below the stars instead of pushing them off the edge. */
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <div
         ref={groupRef}
         role="radiogroup"
@@ -136,7 +141,11 @@ export default function StarRating({
 
       {showLabel && (
         <span
-          className={`min-w-[76px] text-sm font-semibold transition-colors duration-150 ${
+          /* The fixed width stops the row twitching as the word changes
+             length ("Poor" to "Excellent") — worth having on a desktop row,
+             and the thing that caused the overflow on a phone. So it applies
+             from sm upwards only; below that the label simply wraps. */
+          className={`text-sm font-semibold transition-colors duration-150 sm:min-w-[76px] ${
             shown ? 'text-ink' : 'text-subtle'
           }`}
         >

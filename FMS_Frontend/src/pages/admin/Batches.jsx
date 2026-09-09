@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import ScrollHint from '../../components/ScrollHint.jsx';
 import { Link } from 'react-router-dom';
 import { BatchesAPI, ClassesAPI, TrainersAPI } from '../../api/endpoints.js';
 import MentorRosterPicker, { MentorRosterBadges } from '../../components/MentorRosterPicker.jsx';
@@ -441,20 +442,20 @@ export default function Batches() {
             action={<button className="btn-outline" onClick={() => setQuery('')}>Clear search</button>}
           />
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollHint>
             <table className="w-full min-w-[62rem] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line bg-surface-2">
-                  <th className="th text-left">Batch</th>
-                  <th className="th text-left">Classes &amp; mentors</th>
-                  <th className="th text-left">Status</th>
-                  <th className="th text-left">
+                  <th className="th">Batch</th>
+                  <th className="th">Classes &amp; mentors</th>
+                  <th className="th">Status</th>
+                  <th className="th">
                     <span className="inline-flex items-center gap-1.5">
                       Live count
                       <InfoTooltip text="Submitted / expected. Refreshes every few seconds while a batch is open. Submissions are blocked once the expected count is reached." />
                     </span>
                   </th>
-                  <th className="th text-right">Actions</th>
+                  <th className="th">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -530,65 +531,61 @@ export default function Batches() {
                           live={isOpen}
                         />
                       </td>
-                      <td className="td">
-                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      <td className="td-actions">
+                        {/* Icons only. Nine labelled buttons wrapped onto three
+                            lines and made the row taller than the data in it;
+                            the marks are recognisable and every one keeps its
+                            accessible name plus a hover title, so nothing is
+                            lost but the width. */}
+                        <div className="flex items-center justify-center gap-1">
                           {isOpen ? (
                             <>
-                              <button
-                                className="btn-ghost !px-2.5 !py-1.5 text-xs"
+                              <IconAction
+                                icon={copiedLinkId === b._id ? 'check' : 'link'}
+                                label={copiedLinkId === b._id ? 'Student link copied' : 'Copy student link'}
                                 onClick={() => copyLink(b)}
-                                aria-label={`Copy student link for ${b.name}`}
-                              >
-                                <Icon name={copiedLinkId === b._id ? 'check' : 'link'} size={13} />
-                                {copiedLinkId === b._id ? 'Copied' : 'Link'}
-                              </button>
-                              <button
-                                className="btn-ghost !px-2.5 !py-1.5 text-xs"
+                                tone={copiedLinkId === b._id ? 'ok' : 'plain'}
+                              />
+                              <IconAction
+                                icon="refresh"
+                                label="Generate a new passcode"
                                 onClick={() => rotate(b)}
-                                aria-label={`Generate a new passcode for ${b.name}`}
-                              >
-                                <Icon name="refresh" size={13} />
-                                New code
-                              </button>
-                              <button
-                                className="btn-outline !px-2.5 !py-1.5 text-xs"
+                              />
+                              <IconAction
+                                icon="lock"
+                                label="Lock this batch"
                                 onClick={() => doLock(b)}
-                                aria-label={`Lock ${b.name}`}
-                              >
-                                <Icon name="lock" size={13} />
-                                Lock
-                              </button>
+                                tone="outline"
+                              />
                             </>
                           ) : (
-                            <button
-                              className="btn-primary !px-2.5 !py-1.5 text-xs"
+                            <IconAction
+                              icon="unlock"
+                              label="Unlock and generate a passcode"
                               onClick={() => { setUnlockModal(b); setExpected(b.expectedCount || 30); }}
-                              aria-label={`Unlock ${b.name}`}
-                            >
-                              <Icon name="unlock" size={13} />
-                              Unlock
-                            </button>
+                              tone="primary"
+                            />
                           )}
-                          <Link
+
+                          <IconAction
+                            icon="barChart"
+                            label="View feedback"
                             to={`/admin/batch/${b._id}`}
-          state={{ from: '/admin/batches' }}
-                            className="btn-ghost !px-2.5 !py-1.5 text-xs"
-                            aria-label={`View feedback for ${b.name}`}
-                          >
-                            <Icon name="barChart" size={13} />
-                            Feedback
-                          </Link>
-                          <span className="[&_button]:!px-2.5 [&_button]:!py-1.5 [&_button]:!text-xs">
-                            <ExportButtons path={`/export/batch/${b._id}`} baseName={`batch_${b.name}`} />
-                          </span>
-                          <button
-                            className="btn-ghost !px-2.5 !py-1.5 text-xs text-rose-600 hover:!bg-rose-500/10 hover:!text-rose-700 dark:text-rose-400"
+                            state={{ from: '/admin/batches' }}
+                          />
+
+                          <ExportButtons
+                            path={`/export/batch/${b._id}`}
+                            baseName={`batch_${b.name}`}
+                            iconOnly
+                          />
+
+                          <IconAction
+                            icon="trash"
+                            label="Archive this batch"
                             onClick={() => setArchiveTarget(b)}
-                            aria-label={`Archive ${b.name}`}
-                          >
-                            <Icon name="trash" size={14} />
-                            Archive
-                          </button>
+                            tone="danger"
+                          />
                         </div>
                       </td>
                     </tr>
@@ -596,7 +593,7 @@ export default function Batches() {
                 })}
               </tbody>
             </table>
-          </div>
+          </ScrollHint>
         )}
       </Card>
 

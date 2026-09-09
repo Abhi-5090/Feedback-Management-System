@@ -5,7 +5,7 @@ import ClassFeedbackView from '../../components/ClassFeedbackView.jsx';
 
 export default function AdminClassFeedback() {
   const { classId } = useParams();
-  const fetcher = useCallback(() => AnalyticsAPI.class(classId), [classId]);
+  const fetcher = useCallback((params) => AnalyticsAPI.class(classId, params), [classId]);
   // basePath lets the year-group breakdown deep-link into each batch
   // under the right role prefix.
   return (

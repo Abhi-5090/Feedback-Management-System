@@ -354,7 +354,7 @@ export default function Trainers() {
                       </span>
                     </th>
                     <th scope="col" className="th">Status</th>
-                    <th scope="col" className="th text-right">Actions</th>
+                    <th scope="col" className="th">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/60">

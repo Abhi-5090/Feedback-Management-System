@@ -175,7 +175,7 @@ export default function Feedbacks() {
 
       {/* ── Filters ─────────────────────────────────────────────────────── */}
       <div className="card p-3 sm:p-4">
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-end gap-2.5 sm:gap-3">
           <div className="flex items-center gap-1.5 pb-2.5 text-sm font-semibold text-ink">
             <Icon name="filter" size={14} />
             Filters
@@ -251,7 +251,7 @@ export default function Feedbacks() {
             </select>
           </Field>
 
-          <div className="relative min-w-[200px] flex-1">
+          <div className="relative w-full min-w-0 flex-1 sm:w-auto sm:min-w-[200px]">
             <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-subtle">
               <Icon name="search" size={15} />
             </span>
@@ -270,7 +270,7 @@ export default function Feedbacks() {
           {(activeCount > 0 || q) && (
             <button
               type="button"
-              className="btn-ghost !px-2.5 !py-2 text-xs"
+              className="btn-ghost w-full !px-2.5 !py-2 text-xs sm:w-auto"
               onClick={() => {
                 setQ('');
                 setParams(new URLSearchParams(), { replace: true });
@@ -488,7 +488,9 @@ function Stat({ value, label, tone }) {
 
 function Field({ label, id, children }) {
   return (
-    <div className="flex min-w-[140px] flex-col gap-1">
+    /* Full width on a phone: four 140px selects wrap into a ragged grid and
+       each is an awkward tap target. From sm they sit in a row as before. */
+    <div className="flex w-full min-w-0 flex-col gap-1 sm:w-auto sm:min-w-[150px]">
       <label htmlFor={id} className="text-[11px] font-semibold uppercase tracking-wider text-muted">
         {label}
       </label>

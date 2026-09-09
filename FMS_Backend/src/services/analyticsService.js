@@ -250,6 +250,18 @@ export async function volumePerClass(match) {
   }));
 }
 
+/**
+ * How many comments exist in a scope.
+ *
+ * Every submission carries a mandatory comment, so this equals the response
+ * count — but it is queried rather than assumed, because a page that shows
+ * "30 most recent" without saying 30 of WHAT reads as "there are 30", and a
+ * cohort of 66 then looks like it half failed to answer.
+ */
+export async function commentTotal(match) {
+  return Feedback.countDocuments(andMatch(match, { comment: { $exists: true, $ne: '' } }));
+}
+
 /** Recent feedback with its comment + resolved class/batch names + own average. */
 export async function recentComments(match, limit = 20) {
   const rows = await Feedback.aggregate([
@@ -1014,4 +1026,60 @@ export async function yearGroupCards({ scopeTrainerId } = {}) {
       };
     })
     .sort((a, b) => rank(a.yearGroup) - rank(b.yearGroup));
+}
+
+/**
+ * The COLLECTION ROUNDS of a batch, newest first.
+ *
+ * Feedback is gathered repeatedly — weekly, in this deployment — and each
+ * unlock bumps `Batch.round`, stamping every response written during that
+ * window. So a round is exactly one collection: "the feedback we took on the
+ * 8th". Without this, every week's responses pile into one undifferentiated
+ * average and a decline between weeks is invisible, which is the whole point of
+ * asking repeatedly.
+ *
+ * Grouped by round rather than by day because a window can legitimately span
+ * days (a class that answers Monday and the stragglers on Tuesday is ONE
+ * collection). The days it actually covers are listed so the UI can label a
+ * round by date rather than by number, which is what people remember.
+ */
+export async function batchCollections({ batchId, scopeTrainerId, classId } = {}) {
+  const match = andMatch(
+    { batch: oid(batchId) },
+    buildFeedbackMatch({ scopeTrainerId, classId })
+  );
+
+  const rows = await Feedback.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: { round: { $ifNull: ['$round', 0] } },
+        firstAt: { $min: '$createdAt' },
+        lastAt: { $max: '$createdAt' },
+        rowCount: { $sum: 1 },
+        classes: { $addToSet: '$class' },
+        days: { $addToSet: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } } },
+        starSum: { $sum: { $sum: '$ratings.stars' } },
+        starCount: { $sum: { $size: '$ratings' } },
+      },
+    },
+    { $sort: { '_id.round': -1 } },
+  ]);
+
+  return rows.map((r) => {
+    /* One submission writes one row per class, so the number of STUDENTS who
+       answered a round is its row count divided by the classes they rated —
+       reporting rows would double-count a two-subject batch. */
+    const classCount = Math.max(1, r.classes.length);
+    return {
+      round: r._id.round,
+      firstAt: r.firstAt,
+      lastAt: r.lastAt,
+      days: [...r.days].sort(),
+      classCount,
+      rows: r.rowCount,
+      responses: Math.round(r.rowCount / classCount),
+      average: r.starCount ? round(r.starSum / r.starCount, 2) : null,
+    };
+  });
 }

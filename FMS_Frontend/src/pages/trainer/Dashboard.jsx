@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { DashboardAPI } from '../../api/endpoints.js';
+import { AnalyticsAPI, DashboardAPI } from '../../api/endpoints.js';
 import { usePolling } from '../../hooks/usePolling.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useToast } from '../../components/Toast.jsx';
@@ -158,7 +158,15 @@ export default function TrainerDashboard() {
 
           <ThemesPanel params={{}} />
 
-          <CommentsFeed comments={data.comments} title="What your students are saying" />
+          <CommentsFeed
+            comments={data.comments}
+            total={data.commentTotal}
+            pageSize={data.commentPageSize}
+            loadPage={(page) =>
+              AnalyticsAPI.comments({ page, limit: data.commentPageSize || 50 }).then((r) => r.comments)
+            }
+            title="What your students are saying"
+          />
         </>
       )}
     </div>

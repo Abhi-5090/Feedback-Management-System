@@ -214,10 +214,19 @@ body {
   .chip-brand   { @apply chip bg-brand-500/10 text-brand-700 ring-brand-500/20 dark:text-brand-300; }
 
   /* ── Tables ────────────────────────────────────────────────────────────── */
+  /* Table headings are CENTRED. The cells beneath keep their own alignment —
+     names read left, numbers read right — so this is about the header row
+     sitting evenly across the table rather than about the data.
+     Every `.th` in the app inherits it, so no table can drift out of step. */
   .th {
-    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted;
+    @apply px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted;
   }
+  /* A heading whose column is genuinely left-reading (a long name that would
+     look adrift when centred) can opt out with `th-left`. */
+  .th-left { @apply !text-left; }
   .td { @apply px-4 py-3.5 text-sm text-ink align-middle; }
+  /* Action columns hold icon buttons only, so they centre as a group. */
+  .td-actions { @apply px-3 py-2.5 align-middle; }
   .tr-hover { transition: background-color var(--d-hover) ease; }
   @media (hover: hover) and (pointer: fine) {
     .tr-hover:hover { @apply bg-surface-2/70; }

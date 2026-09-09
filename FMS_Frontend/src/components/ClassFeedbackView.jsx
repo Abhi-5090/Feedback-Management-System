@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AnalyticsAPI } from '../api/endpoints.js';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useToast } from './Toast.jsx';
 import Card, { EmptyState } from './Card.jsx';
@@ -179,7 +180,19 @@ export default function ClassFeedbackView({
         />
       )}
 
-      <CommentsFeed comments={data.comments} title="Comments for this class" />
+      <CommentsFeed
+        comments={data.comments}
+        total={data.commentTotal}
+        pageSize={data.commentPageSize}
+        loadPage={(page) =>
+          AnalyticsAPI.comments({
+            classId: data.class.id,
+            page,
+            limit: data.commentPageSize || 50,
+          }).then((r) => r.comments)
+        }
+        title="Comments for this class"
+      />
     </div>
   );
 }

@@ -239,6 +239,26 @@ const P = {
   // ── Arrows / chevrons ────────────────────────────────────────────────────
   chevronDown: <path d="M6 9.5l6 6 6-6" />,
   chevronUp: <path d="M6 14.5l6-6 6 6" />,
+  /* File-type marks. Both share the document silhouette so they read as a
+     pair, and differ where it counts: a grid for a spreadsheet, "PDF" for a
+     PDF. Letterforms are drawn as strokes rather than <text>, so they scale
+     with the icon and inherit currentColor like every other glyph. */
+  fileExcel: (
+    <>
+      <path d="M13.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8.5L13.5 2z" />
+      <path d="M13.5 2v6.5H20" />
+      <path d="M8 12.5h8M8 16h8M11.5 12.5V19M8 19h8" />
+    </>
+  ),
+  filePdf: (
+    <>
+      <path d="M13.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8.5L13.5 2z" />
+      <path d="M13.5 2v6.5H20" />
+      <path d="M8 18.5v-5h1.6a1.4 1.4 0 0 1 0 2.8H8" />
+      <path d="M12.2 18.5v-5h1.1a2.5 2.5 0 0 1 0 5h-1.1z" />
+      <path d="M17.4 18.5v-5H19M17.4 16h1.3" />
+    </>
+  ),
   chevronLeft: <path d="M14.5 6l-6 6 6 6" />,
   chevronRight: <path d="M9.5 6l6 6-6 6" />,
   arrowLeft: <path d="M19 12H5m0 0l6-6m-6 6l6 6" />,

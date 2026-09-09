@@ -3,6 +3,7 @@ import { User } from '../models/User.js';
 import { Class } from '../models/Class.js';
 import { Batch } from '../models/Batch.js';
 import {
+  commentTotal,
   trainerClassIds,
   buildFeedbackMatch,
   batchIdsForCohort,
@@ -50,6 +51,7 @@ export const adminDashboard = asyncHandler(async (req, res) => {
     trend,
     volume,
     comments,
+    totalComments,
     openBatchList,
     coverage,
   ] = await Promise.all([
@@ -61,7 +63,8 @@ export const adminDashboard = asyncHandler(async (req, res) => {
     perParameterAverages(match),
     trendOverTime(match),
     volumePerClass(match),
-    recentComments(match, 25),
+    recentComments(match, 50),
+    commentTotal(match),
     openBatches({}),
     /* Institution-wide response coverage: how much of the expected cohort has
        actually answered. A raw feedback count says nothing about whether a
@@ -121,6 +124,9 @@ export const adminDashboard = asyncHandler(async (req, res) => {
     charts: { perParameter, trend, volumePerClass: volume },
     openBatchList,
     comments,
+    // The page is 50; this says how many exist so the feed can offer the rest.
+    commentTotal: totalComments,
+    commentPageSize: 50,
   });
 });
 
@@ -139,6 +145,7 @@ export const trainerDashboard = asyncHandler(async (req, res) => {
     trend,
     volume,
     comments,
+    totalComments,
     openBatchList,
     roleSplit,
   ] = await Promise.all([
@@ -158,7 +165,8 @@ export const trainerDashboard = asyncHandler(async (req, res) => {
     perParameterAverages(match),
     trendOverTime(match),
     volumePerClass(match),
-    recentComments(match, 25),
+    recentComments(match, 50),
+    commentTotal(match),
     openBatches({ scopeTrainerId }),
     roleSplitStats({ trainerId: scopeTrainerId }),
   ]);
@@ -178,5 +186,7 @@ export const trainerDashboard = asyncHandler(async (req, res) => {
     charts: { perParameter, trend, volumePerClass: volume },
     openBatchList,
     comments,
+    commentTotal: totalComments,
+    commentPageSize: 50,
   });
 });

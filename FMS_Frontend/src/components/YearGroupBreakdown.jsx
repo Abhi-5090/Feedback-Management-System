@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import ScrollHint from './ScrollHint.jsx';
 import { Link, useLocation } from 'react-router-dom';
 import Card from './Card.jsx';
 import Icon from './Icon.jsx';
@@ -149,17 +150,17 @@ function AllYears({ groups, paramLabels, multiYear, basePath }) {
             Per parameter, by year group
             <InfoTooltip text="The same rating dimension across every cohort taking this subject. A row that is weak everywhere is a course problem; a row weak in one cohort is a delivery problem." />
           </p>
-          <div className="overflow-x-auto">
+          <ScrollHint>
             <table className="w-full min-w-[34rem] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line bg-surface-2">
-                  <th className="th text-left">Parameter</th>
+                  <th className="th">Parameter</th>
                   {groups.map((g) => (
-                    <th key={g.yearGroup} className="th text-left">
+                    <th key={g.yearGroup} className="th">
                       {g.yearGroup}
                     </th>
                   ))}
-                  <th className="th text-left">Gap</th>
+                  <th className="th">Gap</th>
                 </tr>
               </thead>
               <tbody>
@@ -191,7 +192,7 @@ function AllYears({ groups, paramLabels, multiYear, basePath }) {
                 })}
               </tbody>
             </table>
-          </div>
+          </ScrollHint>
         </div>
       )}
 
@@ -307,15 +308,15 @@ function BatchTable({ batches, basePath }) {
     return <p className="text-sm text-subtle">No batches.</p>;
   }
   return (
-    <div className="overflow-x-auto">
+    <ScrollHint>
       <table className="w-full min-w-[42rem] border-collapse text-sm">
         <thead>
           <tr className="border-b border-line bg-surface-2">
-            <th className="th text-left">Batch</th>
-            <th className="th text-left">Mentors</th>
-            <th className="th text-left">Avg</th>
-            <th className="th text-left">Responses</th>
-            <th className="th text-left">Answered</th>
+            <th className="th">Batch</th>
+            <th className="th">Mentors</th>
+            <th className="th">Avg</th>
+            <th className="th">Responses</th>
+            <th className="th">Answered</th>
           </tr>
         </thead>
         <tbody>
@@ -376,7 +377,7 @@ function BatchTable({ batches, basePath }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollHint>
   );
 }
 
