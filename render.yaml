@@ -1,0 +1,130 @@
+# ── Render Blueprint: the FMS API ────────────────────────────────────────────
+#
+# Deploy with Render's "New > Blueprint" pointed at this repository, or create
+# the service by hand using the same values.
+#
+# The FRONTEND is not here — it goes to Vercel, which proxies /api back to this
+# service so the auth cookie stays first-party. See FMS_Frontend/VERCEL.md for
+# why that matters more than it sounds.
+#
+# Secrets are marked `sync: false`, so Render prompts for them once and never
+# stores them in this file. Nothing here is a credential.
+
+services:
+  - type: web
+    name: fms-api
+    runtime: node
+    plan: starter          # free spins down after ~15 min idle — see note below
+    region: singapore      # pick whichever is nearest your Atlas cluster
+    rootDir: FMS_Backend
+    buildCommand: npm ci
+    startCommand: npm start
+    # Readiness, not liveness. /api/health only says the process is up;
+    # /api/ready also proves the database answers, so Render will not route
+    # traffic to an instance whose Atlas connection has dropped.
+    healthCheckPath: /api/ready
+    autoDeploy: true
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+
+      # Render provides PORT and expects the app to bind it. env.js already
+      # reads process.env.PORT, so nothing else is needed.
+
+      # ── Database ──────────────────────────────────────────────────────────
+      # Your Atlas SRV string. Atlas must allow connections from Render:
+      # on the free tier Render's outbound IPs are not static, so either use
+      # Atlas's 0.0.0.0/0 entry (protected by the password, still not ideal) or
+      # move to a Render plan with static outbound IPs and allowlist those.
+      - key: MONGO_URI
+        sync: false
+
+      # ── Secrets (32+ chars; the boot guard refuses weak values in prod) ────
+      # Generate with: openssl rand -hex 32
+      - key: JWT_SECRET
+        generateValue: true
+      # DEVICE_SALT must stay STABLE FOREVER. Every DeviceLock row is derived
+      # from it; rotate it and every existing lock stops matching, so students
+      # who already answered could answer again on a still-open batch.
+      # generateValue would produce a new one on a fresh deploy, so it is
+      # entered by hand once and then left alone.
+      - key: DEVICE_SALT
+        sync: false
+
+      # ── Cookies ───────────────────────────────────────────────────────────
+      # Render terminates TLS, so Secure is correct and required.
+      - key: COOKIE_SECURE
+        value: "true"
+      # 'lax' is right because Vercel proxies /api, making the API same-origin
+      # with the app. Only change this if you decide to call Render directly
+      # from the browser, and read FMS_Frontend/VERCEL.md first.
+      - key: COOKIE_SAMESITE
+        value: lax
+
+      # ── Origins ───────────────────────────────────────────────────────────
+      # Your Vercel URL. Comma-separated if you have several (production plus a
+      # custom domain). Preview deployments get their own hostnames, so add
+      # them here too if you want previews to work.
+      - key: CLIENT_ORIGINS
+        sync: false
+      # Used to build links inside emails (password reset). Must be the URL a
+      # person can actually open — the Vercel one, not this service.
+      - key: APP_URL
+        sync: false
+      - key: APP_NAME
+        value: Torii Training Feedback
+
+      # ── Email ─────────────────────────────────────────────────────────────
+      # Without these the mailer only PRINTS messages to the Render log, so
+      # password reset silently does nothing. The service logs a loud warning
+      # at boot when they are missing, and Settings shows a banner.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: RESET_TOKEN_MINUTES
+        value: "30"
+
+      # ── Capacity ──────────────────────────────────────────────────────────
+      # Single process. Clustering only helps with more than one CPU, and the
+      # smaller Render instances have a fraction of one — forking there adds
+      # memory and contention for no throughput. On a multi-CPU instance,
+      # switch startCommand to `npm run start:cluster` and set WEB_CONCURRENCY
+      # to the core count.
+      #
+      # MONGO_MAX_POOL_SIZE is a budget for the whole deployment and is divided
+      # across workers. Atlas shared tiers cap the CLUSTER at 500 connections
+      # across every client, so keep this well under that.
+      - key: MONGO_MAX_POOL_SIZE
+        value: "60"
+
+      # Student endpoints are keyed on the per-device cookie, not the IP, so a
+      # classroom behind one campus NAT is not throttled as a single client.
+      # PUBLIC_IP_MAX is the wider per-IP backstop against a scripted flood.
+      - key: PUBLIC_MAX_PER_DEVICE
+        value: "20"
+      - key: PUBLIC_IP_MAX
+        value: "5000"
+      - key: LOGIN_MAX_PER_IDENTITY
+        value: "20"
+      - key: LOGIN_IP_MAX
+        value: "300"
+
+      - key: DIGESTS_ENABLED
+        value: "true"
+
+# ── A note on the free plan ──────────────────────────────────────────────────
+# Render's free web services sleep after ~15 minutes of inactivity and take
+# roughly 50 seconds to wake. For a feedback session that is the difference
+# between "the form is slow" and "the form is broken" for whoever arrives first,
+# and a class of 300 all arrive at once. Use a paid instance for any session
+# that matters, or warm it a few minutes beforehand by opening the app.

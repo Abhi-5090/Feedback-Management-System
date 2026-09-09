@@ -38,7 +38,9 @@ export function authCookieOptions() {
   return {
     httpOnly: true,
     secure: env.cookieSecure,
-    sameSite: 'lax',
+    // 'lax' unless the deployment genuinely serves the SPA and API from
+    // different origins — see env.cookieSameSite for what 'none' costs.
+    sameSite: env.cookieSameSite,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     path: '/',
   };
@@ -49,7 +51,7 @@ export function deviceCookieOptions() {
   return {
     httpOnly: true,
     secure: env.cookieSecure,
-    sameSite: 'lax',
+    sameSite: env.cookieSameSite,
     maxAge: 180 * 24 * 60 * 60 * 1000, // long-lived; scopes "this device"
     path: '/',
   };

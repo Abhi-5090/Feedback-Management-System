@@ -485,6 +485,17 @@ Public     POST /api/public/verify-passcode  (issues device cookie, returns subj
 
 ---
 
+## Deploying to Render + Vercel
+
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full walkthrough. The one thing
+worth knowing up front: the SPA must proxy `/api` to the API rather than let the
+browser call it cross-origin. This app authenticates with a first-party httpOnly
+cookie (never `localStorage`), and that only works while the browser sees the
+API as same-origin. Calling Render directly from Vercel breaks sign-in on Safari
+and silently disables the students' anti-duplicate device lock.
+`FMS_Frontend/vercel.json` sets that proxy up; `render.yaml` is a Blueprint for
+the API.
+
 ## Run with Docker
 
 ```bash

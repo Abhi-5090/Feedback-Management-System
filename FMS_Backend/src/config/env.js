@@ -66,6 +66,34 @@ export const env = {
     process.env.COOKIE_SECURE != null
       ? process.env.COOKIE_SECURE === 'true'
       : isProdEnv,
+
+  /**
+   * SameSite policy for the auth and device cookies.
+   *
+   * 'lax' (the default) is correct — and safer — whenever the browser reaches
+   * the API on the SAME origin as the app, which is the case behind the vite
+   * proxy, behind nginx, and behind a Vercel rewrite. It also gives CSRF
+   * protection for free.
+   *
+   * 'none' is required only when the SPA and the API are on genuinely
+   * different origins (say a Vercel frontend calling a Render backend
+   * directly). Understand what it costs before choosing it:
+   *   - the cookie becomes a THIRD-PARTY cookie, which Safari blocks by
+   *     default and Chrome is restricting, so sign-in breaks for those users
+   *     with no error message;
+   *   - for students that also disables the anti-duplicate device lock, since
+   *     its cookie cannot be set either;
+   *   - and it forfeits the CSRF protection 'lax' was providing.
+   * Proxying /api from the frontend host avoids all of it, which is why the
+   * deployment guide recommends that instead.
+   */
+  cookieSameSite: (() => {
+    const raw = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase();
+    if (!['lax', 'strict', 'none'].includes(raw)) {
+      throw new Error(`[env] COOKIE_SAMESITE must be lax, strict or none — got "${raw}"`);
+    }
+    return raw;
+  })(),
   clientOrigins: (process.env.CLIENT_ORIGINS || 'http://localhost:5173')
     .split(',')
     .map((s) => s.trim())
@@ -118,6 +146,17 @@ export const env = {
   seedAdminEmail: process.env.ADMIN_EMAIL || process.env.SEED_ADMIN_EMAIL || 'admin@example.com',
   seedAdminPassword: process.env.ADMIN_PASSWORD || process.env.SEED_ADMIN_PASSWORD || '',
 };
+
+/* SameSite=None without Secure is rejected outright by every modern browser,
+   so the cookie would simply never be stored and nobody could sign in — with no
+   error anywhere to explain it. Refuse to start instead. */
+if (env.cookieSameSite === 'none' && !env.cookieSecure) {
+  throw new Error(
+    '[env] COOKIE_SAMESITE=none requires COOKIE_SECURE=true (and HTTPS). ' +
+      'Browsers discard a SameSite=None cookie that is not Secure, so authentication ' +
+      'would fail silently for every user.'
+  );
+}
 
 export const isProd = isProdEnv;
 export const isTest = nodeEnv === 'test';
