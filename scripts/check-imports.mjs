@@ -19,10 +19,18 @@ import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 const ROOTS = ['FMS_Frontend/src'];
-const NAMES = [
+const ROUTER_NAMES = [
   'useLocation', 'useNavigate', 'useParams', 'useSearchParams',
   'useMatch', 'useOutletContext', 'Link', 'NavLink', 'Navigate',
   'Outlet', 'Routes', 'Route', 'MemoryRouter', 'BrowserRouter',
+];
+
+/* React hooks belong here for the same reason: adding a useEffect to a file
+   that only imported useState builds cleanly and throws on render. That
+   happened while wiring the dashboard comment filters. */
+const REACT_NAMES = [
+  'useState', 'useEffect', 'useCallback', 'useMemo', 'useRef',
+  'useContext', 'useReducer', 'useId', 'useLayoutEffect', 'useTransition',
 ];
 
 function walk(dir, out = []) {
@@ -46,13 +54,20 @@ for (const root of ROOTS) {
     }
     scanned += 1;
 
-    const imported = new Set();
-    for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]react-router-dom['"]/g)) {
-      for (const part of m.group ? [] : m[1].split(',')) {
-        const name = part.trim().split(/\s+as\s+/)[0].trim();
-        if (name) imported.add(name);
+    /** Named imports from one module. */
+    const namedFrom = (mod) => {
+      const found = new Set();
+      const re = new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*['"]${mod}['"]`, 'g');
+      for (const m of src.matchAll(re)) {
+        for (const part of m[1].split(',')) {
+          const name = part.trim().split(/\s+as\s+/)[0].trim();
+          if (name) found.add(name);
+        }
       }
-    }
+      return found;
+    };
+    const routerImports = namedFrom('react-router-dom');
+    const reactImports = namedFrom('react');
 
     // Strip imports and comments so a mention in prose is not a usage.
     const body = src
@@ -60,20 +75,27 @@ for (const root of ROOTS) {
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*\/\/[^\n]*$/gm, '');
 
-    for (const name of NAMES) {
-      // A hook call `useX(` or a component `<X` / `<X>`.
-      const used = new RegExp(`(\\b${name}\\s*\\()|(<${name}[\\s/>])`).test(body);
-      if (used && !imported.has(name)) {
-        console.error(`FAIL ${file}: uses \`${name}\` but does not import it from react-router-dom`);
-        problems += 1;
+    for (const [names, imported, mod] of [
+      [ROUTER_NAMES, routerImports, 'react-router-dom'],
+      [REACT_NAMES, reactImports, 'react'],
+    ]) {
+      for (const name of names) {
+        // A hook call `useX(` or a component `<X` / `<X>`. The negative
+        // lookbehind skips `React.useState(` and `foo.useState(`, which are
+        // qualified and therefore fine.
+        const used = new RegExp(`((?<![.\\w])\\b${name}\\s*\\()|(<${name}[\\s/>])`).test(body);
+        if (used && !imported.has(name)) {
+          console.error(`FAIL ${file}: uses \`${name}\` but does not import it from ${mod}`);
+          problems += 1;
+        }
       }
     }
   }
 }
 
-console.log(`Scanned ${scanned} files for missing react-router imports.`);
+console.log(`Scanned ${scanned} files for missing react and react-router imports.`);
 if (problems) {
   console.error(`\n${problems} missing import(s). These build fine and crash at runtime.`);
   process.exit(1);
 }
-console.log('OK — every react-router name used is imported.');
+console.log('OK — every react and react-router name used is imported.');

@@ -183,15 +183,16 @@ export default function ClassFeedbackView({
       <CommentsFeed
         comments={data.comments}
         total={data.commentTotal}
-        pageSize={data.commentPageSize}
-        loadPage={(page) =>
-          AnalyticsAPI.comments({
-            classId: data.class.id,
-            page,
-            limit: data.commentPageSize || 50,
-          }).then((r) => r.comments)
-        }
+        scope={{ classId: data.class.id }}
+        /* A subject runs for several cohorts, so here the useful cut is by
+           BATCH — "how did third year find GenAI, separately from final year". */
+        filterOptions={{
+          batches: (data.breakdown?.yearGroups || [])
+            .flatMap((g) => g.batches)
+            .map((b) => ({ id: b.id, name: b.name })),
+        }}
         title="Comments for this class"
+        hint="Every comment about this subject, across the cohorts that took it. Filter by batch to read one cohort at a time."
       />
     </div>
   );

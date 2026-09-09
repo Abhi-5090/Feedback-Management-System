@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnalyticsAPI, DashboardAPI } from '../../api/endpoints.js';
 import { usePolling } from '../../hooks/usePolling.js';
@@ -40,6 +40,30 @@ export default function TrainerDashboard() {
   const toast = useToast();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  /* Batch and subject options for the comment filters. Fetched once — the
+     dashboard polls every 8s and these change only when an admin edits the
+     catalog, so refetching them on every tick would be pure noise. */
+  const [commentFilters, setCommentFilters] = useState({ batches: [], classes: [] });
+
+  useEffect(() => {
+    let alive = true;
+    AnalyticsAPI.sessions()
+      .then((d) => {
+        if (!alive) return;
+        const batches = new Map();
+        for (const s of d.sessions) batches.set(s.batchId, s.batchName);
+        setCommentFilters({
+          batches: [...batches].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+          classes: d.filters.classes,
+        });
+      })
+      .catch(() => {
+        /* The filters are an enhancement; the feed works without them. */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -161,10 +185,12 @@ export default function TrainerDashboard() {
           <CommentsFeed
             comments={data.comments}
             total={data.commentTotal}
-            pageSize={data.commentPageSize}
-            loadPage={(page) =>
-              AnalyticsAPI.comments({ page, limit: data.commentPageSize || 50 }).then((r) => r.comments)
-            }
+            /* The dashboard is the whole system, so BOTH dropdowns are useful
+               here — narrow to a cohort, or to a subject across cohorts.
+               Options come from the session list, which is already scoped to
+               what this account may see, so a mentor's dropdowns never
+               advertise a batch they cannot open. */
+            filterOptions={commentFilters}
             title="What your students are saying"
           />
         </>

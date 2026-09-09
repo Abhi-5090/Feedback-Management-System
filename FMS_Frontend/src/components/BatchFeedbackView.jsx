@@ -339,17 +339,18 @@ export default function BatchFeedbackView({ fetcher, exportPath, exportName, bac
       <CommentsFeed
         comments={data.comments}
         total={data.commentTotal}
-        pageSize={data.commentPageSize}
         loading={refetching}
-        loadPage={(page) =>
-          AnalyticsAPI.comments({
-            batchId: data.batch.id,
-            page,
-            limit: data.commentPageSize || 50,
-            ...(round != null ? { round } : {}),
-          }).then((r) => r.comments)
-        }
+        /* Always scoped to this batch and, when one is chosen, this collection
+           round — so paging and filtering can never wander outside what the
+           page claims to show. */
+        scope={{ batchId: data.batch.id, ...(round != null ? { round } : {}) }}
+        /* Only a subject dropdown here: the batch is already fixed, so a batch
+           dropdown would offer exactly one option. */
+        filterOptions={{
+          classes: (data.batch.classes || []).map((c) => ({ id: c.id, name: c.name })),
+        }}
         title="Comments across this batch"
+        hint="Every comment from this batch. A batch runs several subjects, so use the filter to read one subject's feedback on its own."
       />
         </div>
       </Reloading>

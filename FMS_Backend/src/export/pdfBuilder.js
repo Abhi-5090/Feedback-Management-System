@@ -97,8 +97,18 @@ const dataCell = (text, align = 'center') => ({ text: String(text ?? ''), alignm
 /**
  * @param {object} report  same shape produced by exportController.assembleReport
  */
-export async function buildPdf(report) {
-  const printer = await getPrinter();
+/**
+ * Build the pdfmake document definition for a report.
+ *
+ * Separated from rendering so the CONTENT can be asserted directly. Verifying
+ * a rendered PDF means decompressing its streams and pattern-matching text
+ * fragments, which is fragile enough that a test doing it tells you more about
+ * pdfmake's encoding than about your document. A pure definition is just an
+ * object: a test can check that batch and class are separate cells, that each
+ * subject has its own heading, and that rows within one are in submission
+ * order.
+ */
+export function buildPdfDocDefinition(report) {
   const paramLabels = (report.parameters || []).map((p) => p.label);
 
   // ── Summary table: Parameter | Average | Responses (all single-line) ─────
@@ -148,19 +158,50 @@ export async function buildPdf(report) {
     'auto', 'auto',
   ];
 
-  // ── Comments table: Batch/Class | Avg | Comment ─────────────────────────
-  // The class is named alongside each comment: in a multi-subject batch an
-  // unattributed comment is unactionable, since "the pace was too fast" means
-  // nothing without knowing which session it was about.
-  const commentBody = [
-    [headerCell('Batch · Class'), headerCell('Avg (1-5)'), headerCell('Comment')],
-    ...(report.rows || [])
-      .filter((r) => r.comment)
-      .map((r) => [
-        dataCell(`${r.batchName || '—'} · ${r.className || '—'}`, 'left'),
-        dataCell(fmt(r.average)),
-        dataCell(r.comment, 'left'),
-      ]),
+  /* ── Comments, GROUPED BY SUBJECT ───────────────────────────────────────
+     Batch and class each get their own column. They were previously joined
+     into one ("AI Ready 2028 · Batch-2 · GenAI"), which is unsortable,
+     unfilterable once the PDF is pasted into a spreadsheet, and wastes width
+     repeating the batch on every row of a single-batch export.
+
+     And the comments are grouped: one section per subject, headed
+     "Comments — GenAI", with rows in the order they were submitted. Read
+     interleaved, a multi-subject batch gives you a GenAI remark about pace
+     followed by a Coding remark about pace and no way to tell whether the
+     complaint is about one session or both. Grouped, each subject reads as its
+     own body of feedback, which is how anyone acts on it. */
+  const commentRows = (report.rows || []).filter((r) => r.comment);
+
+  const bySubject = new Map();
+  for (const r of commentRows) {
+    const key = r.className || '—';
+    if (!bySubject.has(key)) bySubject.set(key, []);
+    bySubject.get(key).push(r);
+  }
+  /* Within a subject, oldest first — the order students actually answered in,
+     so reading down the column follows the session as it unfolded. */
+  for (const rows of bySubject.values()) {
+    rows.sort((a, b) => new Date(a.submittedAt || 0) - new Date(b.submittedAt || 0));
+  }
+  // Busiest subject first, so the section with the most to say leads.
+  const subjectSections = [...bySubject.entries()].sort((a, b) => b[1].length - a[1].length);
+
+  /** One table of comments for a single subject. */
+  const commentTableFor = (rows) => [
+    [
+      headerCell('Batch'),
+      headerCell('Class'),
+      headerCell('Submitted'),
+      headerCell('Avg (1-5)'),
+      headerCell('Comment'),
+    ],
+    ...rows.map((r) => [
+      dataCell(r.batchName || '—', 'left'),
+      dataCell(r.className || '—', 'left'),
+      dataCell(fmtDate(r.submittedAt), 'left'),
+      dataCell(fmt(r.average)),
+      dataCell(r.comment, 'left'),
+    ]),
   ];
 
   const content = [
@@ -178,14 +219,34 @@ export async function buildPdf(report) {
       : { text: 'No feedback yet for this selection.', italics: true, color: '#888' },
   ];
 
-  if (commentBody.length > 1) {
-    content.push(
-      { text: 'Comments', style: 'sectionTitle', margin: [0, 16, 0, 6] },
-      {
-        table: { headerRows: 1, widths: ['auto', 'auto', '*'], body: commentBody, dontBreakRows: true, keepWithHeaderRows: 1 },
-        layout: centeredTableLayout,
-      }
-    );
+  if (commentRows.length) {
+    content.push({
+      text: `Comments · ${commentRows.length} in total`,
+      style: 'sectionTitle',
+      margin: [0, 16, 0, 2],
+    });
+
+    for (const [subject, rows] of subjectSections) {
+      content.push(
+        /* The subject heading the user asked for, above each block. Kept with
+           the table that follows it so a page break can never orphan it. */
+        {
+          text: `Comments — ${subject}  (${rows.length})`,
+          style: 'subSectionTitle',
+          margin: [0, 10, 0, 4],
+        },
+        {
+          table: {
+            headerRows: 1,
+            widths: ['auto', 'auto', 'auto', 'auto', '*'],
+            body: commentTableFor(rows),
+            dontBreakRows: true,
+            keepWithHeaderRows: 1,
+          },
+          layout: centeredTableLayout,
+        }
+      );
+    }
   }
 
   const docDefinition = {
@@ -198,6 +259,9 @@ export async function buildPdf(report) {
     defaultStyle: { font: 'Roboto', fontSize: 9, color: '#1f2430' },
     styles: {
       sectionTitle: { fontSize: 12, bold: true, color: BRAND, margin: [0, 0, 0, 6] },
+      /* Smaller and inked rather than brand-coloured, so a subject heading
+         reads as a subdivision of "Comments" and not as a peer of it. */
+      subSectionTitle: { fontSize: 10.5, bold: true, color: '#111827' },
     },
 
     // Repeating page header: title + filter context + generated-on + KPIs.
@@ -268,7 +332,14 @@ export async function buildPdf(report) {
     content,
   };
 
-  const pdfDoc = printer.createPdfKitDocument(docDefinition);
+  return docDefinition;
+}
+
+/** Render a report to PDF bytes. */
+export async function buildPdf(report) {
+  // Font loading belongs to rendering; the document definition needs no printer.
+  const printer = await getPrinter();
+  const pdfDoc = printer.createPdfKitDocument(buildPdfDocDefinition(report));
   return new Promise((resolve, reject) => {
     const chunks = [];
     pdfDoc.on('data', (c) => chunks.push(c));

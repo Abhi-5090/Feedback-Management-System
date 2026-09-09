@@ -83,19 +83,89 @@ export default function Feedbacks() {
     setParams(params, { replace: true });
   };
 
-  const shown = useMemo(() => {
+  /* One card per BATCH, not per (batch, subject).
+     The session grain is right for the data and wrong for this page: a batch
+     running Coding and GenAI produced two cards with the same title, differing
+     only by a chip, so "AI Ready 2028 · Batch-2" appeared twice and neither
+     card described the cohort. The per-subject split belongs INSIDE the batch,
+     which is what "Feedback by class" on the batch page already does.
+
+     Aggregated on the client because the session list already carries
+     everything needed and is already correctly scoped — a mentor's sessions are
+     only their own, so the batch card built from them is too. */
+  const batches = useMemo(() => {
     const all = data?.sessions || [];
+    const byBatch = new Map();
+
+    for (const s of all) {
+      if (!byBatch.has(s.batchId)) {
+        byBatch.set(s.batchId, {
+          batchId: s.batchId,
+          batchName: s.batchName,
+          yearGroup: s.yearGroup,
+          dept: s.dept,
+          status: s.status,
+          round: s.round,
+          expectedCount: s.expectedCount,
+          subjects: [],
+          mentors: new Set(),
+          myRoles: new Set(),
+          responses: 0,
+          starSum: 0,
+          starWeight: 0,
+          lastFeedbackAt: null,
+          openSessions: 0,
+        });
+      }
+      const b = byBatch.get(s.batchId);
+      b.subjects.push({
+        classId: s.classId,
+        name: s.className,
+        responses: s.responses,
+        average: s.average,
+        mainTrainerNames: s.mainTrainerNames,
+        supportTrainerNames: s.supportTrainerNames,
+      });
+      for (const n of [...s.mainTrainerNames, ...s.supportTrainerNames]) b.mentors.add(n);
+      for (const r of s.myRoles || []) b.myRoles.add(r);
+      /* Students who answered is the MAX across the batch's subjects, not the
+         sum: one submission writes a row per subject, so summing would report
+         a two-subject cohort as having answered twice. */
+      b.responses = Math.max(b.responses, s.responses);
+      if (s.average != null && s.responses) {
+        b.starSum += s.average * s.responses;
+        b.starWeight += s.responses;
+      }
+      if (s.lastFeedbackAt && (!b.lastFeedbackAt || s.lastFeedbackAt > b.lastFeedbackAt)) {
+        b.lastFeedbackAt = s.lastFeedbackAt;
+      }
+      if (s.status === 'open') b.openSessions += 1;
+    }
+
+    return [...byBatch.values()].map((b) => ({
+      ...b,
+      mentors: [...b.mentors],
+      myRoles: [...b.myRoles],
+      subjects: b.subjects.sort((x, y) => x.name.localeCompare(y.name)),
+      average: b.starWeight ? Math.round((b.starSum / b.starWeight) * 100) / 100 : null,
+      responseRate:
+        b.expectedCount > 0
+          ? Math.round((b.responses / b.expectedCount) * 1000) / 10
+          : null,
+    }));
+  }, [data]);
+
+  const shown = useMemo(() => {
+    const all = batches;
     const needle = q.trim().toLowerCase();
     const filtered = needle
       ? all.filter(
-          (s) =>
-            s.batchName.toLowerCase().includes(needle) ||
-            s.className.toLowerCase().includes(needle) ||
-            s.dept.toLowerCase().includes(needle) ||
-            [...s.mainTrainerNames, ...s.supportTrainerNames]
-              .join(' ')
-              .toLowerCase()
-              .includes(needle)
+          (b) =>
+            b.batchName.toLowerCase().includes(needle) ||
+            b.yearGroup.toLowerCase().includes(needle) ||
+            b.dept.toLowerCase().includes(needle) ||
+            b.subjects.map((x) => x.name).join(' ').toLowerCase().includes(needle) ||
+            b.mentors.join(' ').toLowerCase().includes(needle)
         )
       : all;
 
@@ -123,25 +193,23 @@ export default function Feedbacks() {
         (a, b) => new Date(b.lastFeedbackAt || 0) - new Date(a.lastFeedbackAt || 0)
       );
     return out;
-  }, [data, q, sort]);
+  }, [batches, q, sort]);
 
   const totals = useMemo(() => {
-    const all = data?.sessions || [];
-    if (!all.length) return null;
-    const rated = all.filter((s) => s.average != null);
-    const responses = all.reduce((n, s) => n + s.responses, 0);
+    if (!batches.length) return null;
+    const rated = batches.filter((b) => b.average != null);
     return {
-      sessions: all.length,
-      batches: new Set(all.map((s) => s.batchId)).size,
-      responses,
+      sessions: (data?.sessions || []).length,
+      batches: batches.length,
+      responses: batches.reduce((n, b) => n + b.responses, 0),
       // Weighted, so a 140-student batch counts more than a 60-student one.
       average: rated.length
-        ? rated.reduce((n, s) => n + s.average * s.responses, 0) /
-          (rated.reduce((n, s) => n + s.responses, 0) || 1)
+        ? rated.reduce((n, b) => n + b.average * b.responses, 0) /
+          (rated.reduce((n, b) => n + b.responses, 0) || 1)
         : null,
-      open: all.filter((s) => s.status === 'open').length,
+      open: batches.filter((b) => b.status === 'open').length,
     };
-  }, [data]);
+  }, [batches, data]);
 
   const filters = data?.filters || { yearGroups: [], classes: [] };
   const activeCount = [year, subject, role].filter(Boolean).length;
@@ -161,7 +229,7 @@ export default function Feedbacks() {
       {/* ── Totals for the current filter ───────────────────────────────── */}
       {totals && (
         <div className="panel divide-y divide-line sm:grid sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-          <Fig label="Batches" value={totals.batches} icon="ticket" sub={`${totals.sessions} sessions`} />
+          <Fig label="Batches" value={totals.batches} icon="ticket" sub={`${totals.sessions} subject sessions`} />
           <Fig label="Collecting now" value={totals.open} icon="unlock" />
           <Fig label="Responses" value={totals.responses.toLocaleString()} icon="inbox" />
           <Fig
@@ -334,13 +402,15 @@ export default function Feedbacks() {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {shown.map((s, i) => (
-              <SessionCard key={s.id} s={s} basePath={basePath} delay={i * 25} />
+            {shown.map((b, i) => (
+              <BatchCard key={b.batchId} b={b} basePath={basePath} delay={i * 25} />
             ))}
           </div>
           <p className="text-center text-xs text-muted">
             <span className="tnum font-semibold text-ink">{shown.length}</span> of{' '}
-            <span className="tnum">{data.sessions.length}</span> sessions
+            <span className="tnum">{batches.length}</span>{' '}
+            {batches.length === 1 ? 'batch' : 'batches'}
+            {totals?.sessions ? ` · ${totals.sessions} subject sessions` : ''}
           </p>
         </>
       )}
@@ -350,40 +420,43 @@ export default function Feedbacks() {
 
 /* ── One session ────────────────────────────────────────────────────────── */
 
-function SessionCard({ s, basePath, delay }) {
-  const rated = s.average != null;
+/**
+ * One card per BATCH, naming the subjects it ran.
+ *
+ * The batch is the headline because that is what people look for — "Industry
+ * Readiness Batch - 3", never "the GenAI one". The subjects appear as a list
+ * inside it, each with its own rating, which is the information the two
+ * separate cards used to carry without ever saying they belonged together.
+ * Opening the card goes to the batch page, where "Feedback by class" breaks
+ * each subject out in full.
+ */
+function BatchCard({ b, basePath, delay }) {
+  const rated = b.average != null;
 
   return (
     <Link
-      to={`${basePath}/batch/${s.batchId}`}
+      to={`${basePath}/batch/${b.batchId}`}
       state={{ from: `${basePath}/feedbacks${window.location.search}` }}
       style={{ animationDelay: `${delay}ms` }}
       className="card animate-fade-up group flex flex-col overflow-hidden p-0 transition-shadow duration-200 hover:shadow-card-lg"
     >
-      {/* shrink-0 so the strip keeps its exact height as the card grows — a
-          flex child with only h-1 is compressible, which made the rule look
-          thinner on taller cards. */}
       <span
         aria-hidden="true"
         className={`block h-1 w-full shrink-0 ${
-          s.status === 'open' ? 'bg-emerald-500' : 'bg-line group-hover:bg-brand-500/40'
+          b.status === 'open' ? 'bg-emerald-500' : 'bg-line group-hover:bg-brand-500/40'
         }`}
       />
 
       <span className="flex flex-1 flex-col p-4">
-        {/* Batch is the headline, subject the qualifier — you look for
-            "Industry Readiness Batch - 3", not for the subject. */}
         <span className="flex items-start justify-between gap-2">
           <span className="min-w-0">
-            <span className="block truncate text-sm font-bold text-ink">{s.batchName}</span>
-            <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-              <span className="chip bg-surface-2 !py-0.5 text-[10px] font-semibold text-ink">
-                {s.className}
-              </span>
-              <span className="text-[11px] text-muted">{s.yearGroup}</span>
+            <span className="block truncate text-sm font-bold text-ink">{b.batchName}</span>
+            <span className="mt-0.5 block truncate text-[11px] text-muted">
+              {b.yearGroup}
+              {b.dept ? ` · ${b.dept}` : ''}
             </span>
           </span>
-          {s.status === 'open' ? (
+          {b.status === 'open' ? (
             <span className="chip-open shrink-0 !py-0.5 text-[10px]">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
               Live
@@ -393,72 +466,74 @@ function SessionCard({ s, basePath, delay }) {
           )}
         </span>
 
-        {s.dept && (
-          <span className="mt-1.5 block truncate text-[11px] text-subtle">{s.dept}</span>
-        )}
-
-        {/* Who taught it. The reason a card exists per batch rather than per
-            subject: these names differ between cohorts of the same subject. */}
-        <span className="mt-2.5 block">
-          <MentorRosterBadges
-            mainTrainerNames={s.mainTrainerNames}
-            supportTrainerNames={s.supportTrainerNames}
-          />
+        {/* The subjects, each with its own rating. This is why one card per
+            batch loses nothing: the per-subject figures are right here. */}
+        <span className="mt-3 block space-y-1">
+          {b.subjects.map((sub) => (
+            <span key={sub.classId} className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="chip bg-surface-2 !py-0.5 text-[10px] font-semibold text-ink">
+                  {sub.name}
+                </span>
+              </span>
+              <span className="shrink-0 tnum text-muted">
+                {sub.average != null ? (
+                  <>
+                    <span className="font-semibold text-ink">{sub.average.toFixed(2)}</span>★
+                    <span className="text-subtle"> · {sub.responses}</span>
+                  </>
+                ) : (
+                  <span className="text-subtle">no responses</span>
+                )}
+              </span>
+            </span>
+          ))}
         </span>
 
-        {/* My role on this session, for a mentor. */}
-        {s.myRoles?.length > 0 && (
-          <span className="mt-2 block text-[10px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-            You: {s.myRoles.map((r) => (r === 'main' ? 'main mentor' : 'support mentor')).join(' + ')}
+        {/* Mentors across the whole batch, de-duplicated. Naming them per
+            subject here would repeat the same two or three names three times. */}
+        {b.mentors.length > 0 && (
+          <span className="mt-2.5 block truncate text-[11px] text-muted">
+            <Icon name="users" size={11} className="mr-1 inline align-[-1px]" />
+            {b.mentors.slice(0, 3).join(', ')}
+            {b.mentors.length > 3 ? ` +${b.mentors.length - 3}` : ''}
+          </span>
+        )}
+
+        {b.myRoles?.length > 0 && (
+          <span className="mt-1.5 block text-[10px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+            You: {b.myRoles.map((r) => (r === 'main' ? 'main mentor' : 'support mentor')).join(' + ')}
           </span>
         )}
 
         <span className="mt-auto block border-t border-line pt-3">
           <span className="grid grid-cols-3 gap-2">
             <Stat
-              value={rated ? s.average.toFixed(2) : '—'}
+              value={rated ? b.average.toFixed(2) : '—'}
               label={rated ? '★ average' : 'no rating'}
-              tone={rated ? (s.average >= 4 ? 'good' : s.average >= 3.5 ? 'warn' : 'bad') : 'muted'}
+              tone={rated ? (b.average >= 4 ? 'good' : b.average >= 3.5 ? 'warn' : 'bad') : 'muted'}
             />
-            <Stat value={s.responses} label={s.responses === 1 ? 'response' : 'responses'} />
             <Stat
-              value={s.responseRate == null ? '—' : `${s.responseRate}%`}
+              value={b.responses}
+              label={b.responses === 1 ? 'student' : 'students'}
+            />
+            <Stat
+              value={b.responseRate == null ? '—' : `${b.responseRate}%`}
               label="answered"
               tone={
-                s.responseRate == null
+                b.responseRate == null
                   ? 'muted'
-                  : s.responseRate >= 60
+                  : b.responseRate >= 60
                     ? 'good'
-                    : s.responseRate >= 30
+                    : b.responseRate >= 30
                       ? 'warn'
                       : 'bad'
               }
             />
           </span>
 
-          {/* The one insight that makes a card worth reading rather than
-              just clicking through. */}
-          {rated && s.weakest && s.strongest && (
-            <span className="mt-2.5 block space-y-0.5 text-[11px]">
-              <span className="flex items-center justify-between gap-2">
-                <span className="truncate text-muted">Best: {s.strongest.label}</span>
-                <span className="tnum shrink-0 font-semibold text-emerald-700 dark:text-emerald-400">
-                  {s.strongest.average.toFixed(2)}
-                </span>
-              </span>
-              {s.weakest.label !== s.strongest.label && (
-                <span className="flex items-center justify-between gap-2">
-                  <span className="truncate text-muted">Weakest: {s.weakest.label}</span>
-                  <span className="tnum shrink-0 font-semibold text-amber-700 dark:text-amber-400">
-                    {s.weakest.average.toFixed(2)}
-                  </span>
-                </span>
-              )}
-            </span>
-          )}
-
           <span className="mt-2.5 flex items-center gap-1 text-[11px] font-semibold text-muted group-hover:text-ink">
-            View feedback
+            View feedback by class
             <Icon name="chevronRight" size={12} />
           </span>
         </span>
