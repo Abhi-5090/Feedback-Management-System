@@ -12,8 +12,23 @@ export default defineConfig(({ mode }) => {
   const envVars = loadEnv(mode, process.cwd(), '');
   const apiTarget = envVars.VITE_API_PROXY || 'http://localhost:5550';
 
+  /* The commit this bundle was built from, baked in at build time.
+     Only VITE_-prefixed variables reach the client automatically, and Vercel's
+     git metadata is not prefixed — so it is injected explicitly here. Lets the
+     running app state its own version instead of leaving "is this the new
+     code?" to be answered by comparing asset hashes. */
+  const commit = (
+    envVars.VERCEL_GIT_COMMIT_SHA ||
+    envVars.GIT_COMMIT ||
+    'dev'
+  ).slice(0, 7);
+
   return {
     plugins: [react()],
+    define: {
+      __APP_COMMIT__: JSON.stringify(commit),
+      __APP_BUILT_AT__: JSON.stringify(new Date().toISOString()),
+    },
     server: {
       port: 5173,
       proxy: {

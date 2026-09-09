@@ -221,8 +221,40 @@ every push.
 
 ---
 
-## Redeploying
+## Redeploying — and confirming it actually happened
 
-Both platforms deploy on push to `main`. Render rebuilds the API, Vercel
-rebuilds the SPA. CI runs the same checks on the commit either way — if it goes
-red, the deploy that just went out is the one to look at.
+Vercel deploys every push automatically; there is nothing to switch on.
+
+**Render needs Auto-Deploy turned on**, and it is not always on by default. If
+it is off, pushes change nothing on the API while the frontend keeps updating —
+so the SPA starts expecting response fields an older API does not send yet. That
+happened here: the API sat two commits behind for a day, and the only symptom
+was a feature quietly not working.
+
+```
+Render dashboard > fms-api > Settings > Build & Deploy > Auto-Deploy: On
+```
+
+To push a build without a commit: **Manual Deploy > Deploy latest commit**.
+
+### Check what is live
+
+```bash
+bash scripts/deploy-status.sh
+```
+
+It prints your local HEAD, the commit the API reports running, and the bundle
+the SPA is serving, then says whether the API is behind. Exits non-zero if it
+is, so a release script can gate on it. Both halves also show their commit in
+the app: **Settings > App version** reads `web 50383e9 · api 50383e9`, and they
+should match.
+
+`/api/health` carries the same information without authentication, which is
+what makes the check and any uptime probe work:
+
+```json
+{ "ok": true, "version": { "commit": "50383e9", "branch": "main" } }
+```
+
+CI runs on every push regardless. If it goes red, the deploy that just went out
+is the one to look at.

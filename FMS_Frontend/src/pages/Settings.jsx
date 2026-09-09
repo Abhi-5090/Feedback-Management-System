@@ -540,6 +540,17 @@ export default function Settings() {
                 <Row label="Environment">
                   <span className="text-ink">{system.environment}</span>
                 </Row>
+                {/* Both halves, side by side. They are deployed separately and
+                    can drift — a frontend expecting fields an older API does
+                    not send yet is a real failure mode, and this makes it
+                    visible in one glance instead of needing a probe. */}
+                <Row label="App version">
+                  <span className="font-mono text-xs text-ink">
+                    web {typeof __APP_COMMIT__ === 'string' ? __APP_COMMIT__ : 'dev'}
+                    <span className="text-subtle"> · </span>
+                    api {system.version?.commit || 'unknown'}
+                  </span>
+                </Row>
               </>
             )}
           </dl>

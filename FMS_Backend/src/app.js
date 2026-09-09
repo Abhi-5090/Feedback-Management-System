@@ -81,10 +81,24 @@ export function createApp() {
   // deployment internals to anonymous callers. The detailed picture (mail
   // transport, transaction support, limits) lives behind auth at
   // GET /api/auth/system.
+  /* WHAT IS ACTUALLY DEPLOYED.
+     "Did my push go live?" was unanswerable without probing for a feature and
+     inferring the commit from which endpoints existed — which is how a backend
+     sat two commits behind a frontend that expected its new fields for a day
+     without anyone noticing. Render injects RENDER_GIT_COMMIT on every deploy,
+     so the running code can simply say which commit it is. */
+  const version = {
+    commit: (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'unknown').slice(0, 7),
+    branch: process.env.RENDER_GIT_BRANCH || process.env.GIT_BRANCH || 'unknown',
+    // Set at process start, so it also reveals a service that never restarted.
+    startedAt: new Date().toISOString(),
+  };
+
   app.get('/api/health', (_req, res) =>
     res.json({
       ok: true,
       service: 'fms-api',
+      version,
       uptime: Math.round(process.uptime()),
       // Which worker answered. Makes it possible to confirm a load balancer is
       // actually spreading traffic rather than pinning it to one process.

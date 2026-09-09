@@ -260,6 +260,15 @@ export const systemStatus = asyncHandler(async (req, res) => {
     service: 'fms-api',
     appName: env.appName,
     environment: env.nodeEnv,
+    /* Which commit this API is running. The frontend shows it beside its own,
+       because the two deploy independently and can drift — a web build
+       expecting fields an older API does not send yet is a real failure mode,
+       and it happened: the API sat two commits behind for a day. Render
+       injects RENDER_GIT_COMMIT on every deploy. */
+    version: {
+      commit: (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'unknown').slice(0, 7),
+      branch: process.env.RENDER_GIT_BRANCH || process.env.GIT_BRANCH || 'unknown',
+    },
     // Deployment internals are an admin concern; a trainer just needs "ok".
     ...(admin
       ? {
