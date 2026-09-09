@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './auth/ProtectedRoute.jsx';
 import Spinner from './components/Spinner.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 // Eager: the two entry points a cold visitor hits first (login + the anonymous
 // student link). Loading these inline avoids a spinner flash on first paint.
@@ -47,7 +48,13 @@ function RouteFallback() {
 
 export default function App() {
   return (
-    <Suspense fallback={<RouteFallback />}>
+    /* ABOVE Suspense, deliberately. A lazily loaded route that fails to import
+       — the usual cause being an `index.html` cached from a previous deploy
+       pointing at chunk names that no longer exist — rejects during render, so
+       only a boundary outside the Suspense can catch it. Inside, the fallback
+       spinner just sits there and the page stays blank forever. */
+    <ErrorBoundary>
+      <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
@@ -102,7 +109,8 @@ export default function App() {
         </Route>
 
         <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Suspense>
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
