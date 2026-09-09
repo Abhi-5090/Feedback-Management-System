@@ -26,7 +26,14 @@ const isStaleChunk = (err) => {
 const RELOAD_KEY = 'fms:chunk-reload-at';
 const RELOAD_WINDOW_MS = 20_000;
 
-function reloadOnceForStaleChunk() {
+/**
+ * @param {() => void} doReload  How to reload. Injected so this is testable
+ *   without reassigning `window.location`, which is non-configurable in newer
+ *   jsdom and Node — a test that deletes it passes on one version and throws a
+ *   TypeError on the next, which is exactly how it broke CI while passing
+ *   locally.
+ */
+function reloadOnceForStaleChunk(doReload) {
   let last = 0;
   try {
     last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
@@ -39,9 +46,9 @@ function reloadOnceForStaleChunk() {
   } catch {
     /* ignore */
   }
-  // `reload()` re-requests index.html, which is served no-cache, so the fresh
-  // chunk names arrive with it.
-  window.location.reload();
+  // Re-requests index.html, which must revalidate, so the fresh chunk names
+  // arrive with it.
+  doReload();
   return true;
 }
 
@@ -57,6 +64,9 @@ export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
     this.state = { error: null, reloading: false };
+    /* Default to a real reload; a test supplies its own. Bound once so the
+       event listener can be removed by identity. */
+    this.reload = props.onReload || (() => window.location.reload());
   }
 
   static getDerivedStateFromError(error) {
@@ -70,7 +80,7 @@ export default class ErrorBoundary extends Component {
        broken state at all. */
     this.onPreloadError = (event) => {
       event.preventDefault?.();
-      if (!reloadOnceForStaleChunk()) {
+      if (!reloadOnceForStaleChunk(this.reload)) {
         this.setState({ error: event.payload || new Error('Failed to load part of the app') });
       }
     };
@@ -83,7 +93,7 @@ export default class ErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     if (isStaleChunk(error)) {
-      if (reloadOnceForStaleChunk()) {
+      if (reloadOnceForStaleChunk(this.reload)) {
         this.setState({ reloading: true });
         return;
       }
@@ -136,7 +146,7 @@ export default class ErrorBoundary extends Component {
           )}
 
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
-            <button type="button" className="btn-primary" onClick={() => window.location.reload()}>
+            <button type="button" className="btn-primary" onClick={this.reload}>
               <Icon name="refresh" size={15} />
               Reload the page
             </button>

@@ -49,16 +49,16 @@ describe('ErrorBoundary', () => {
   });
 
   it('recovers from a stale chunk by reloading once, not looping', () => {
+    /* The reload is INJECTED rather than patched onto window.location.
+       Deleting and reassigning location works on some jsdom/Node versions and
+       throws a TypeError on others — it passed here and failed CI, which is
+       the worst kind of test. */
     const reload = vi.fn();
-    const original = window.location;
-    // jsdom's location is read-only; swap it for the duration of the test.
-    delete window.location;
-    window.location = { ...original, reload, href: '/' };
 
     const staleChunk = new Error('Failed to fetch dynamically imported module: /assets/Batches-OLD.js');
 
     render(
-      <ErrorBoundary>
+      <ErrorBoundary onReload={reload}>
         <Boom error={staleChunk} />
       </ErrorBoundary>
     );
@@ -70,13 +70,11 @@ describe('ErrorBoundary', () => {
     // Second encounter inside the guard window: do NOT reload again — a chunk
     // that is genuinely gone would otherwise spin the tab forever.
     render(
-      <ErrorBoundary>
+      <ErrorBoundary onReload={reload}>
         <Boom error={staleChunk} />
       </ErrorBoundary>
     );
     expect(reload).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/needs a refresh/i)).toBeInTheDocument();
-
-    window.location = original;
   });
 });
