@@ -156,7 +156,7 @@ export default class ErrorBoundary extends Component {
               type="button"
               className="btn-outline"
               onClick={() => {
-                window.location.href = '/';
+                window.location.href = import.meta.env.BASE_URL;
               }}
             >
               Go to the start

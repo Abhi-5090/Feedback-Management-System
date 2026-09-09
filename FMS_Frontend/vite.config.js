@@ -11,6 +11,10 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   const envVars = loadEnv(mode, process.cwd(), '');
   const apiTarget = envVars.VITE_API_PROXY || 'http://localhost:5550';
+  // Public path the app is served under. Root by default; set VITE_BASE_PATH
+  // (e.g. '/fms/') when nginx mounts the SPA on a sub-path, or every asset
+  // URL comes out absolute-from-root and the page loads blank.
+  const base = envVars.VITE_BASE_PATH || '/';
 
   /* The commit this bundle was built from, baked in at build time.
      Only VITE_-prefixed variables reach the client automatically, and Vercel's
@@ -24,6 +28,7 @@ export default defineConfig(({ mode }) => {
   ).slice(0, 7);
 
   return {
+    base,
     plugins: [react()],
     define: {
       __APP_COMMIT__: JSON.stringify(commit),

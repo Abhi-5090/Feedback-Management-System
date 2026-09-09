@@ -122,7 +122,7 @@ export default function Settings() {
       toast.success('Signed out on all devices');
       // This session's cookie is gone too, so send them to the login screen
       // rather than leaving a page whose every request will now 401.
-      window.location.assign('/login');
+      window.location.assign(`${import.meta.env.BASE_URL}login`);
     } catch (err) {
       toast.error(err.message || 'Could not sign out everywhere');
       setSigningOutAll(false);

@@ -9,7 +9,9 @@ import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
+    {/* Follows vite's `base`, so a sub-path deploy (/fms) routes correctly
+        and a root deploy is unaffected. */}
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <ThemeProvider>
         <ToastProvider>
           <AuthProvider>
