@@ -165,6 +165,45 @@ const BATCH_FIELDS = (b) => [
   b.status === 'open' ? 'open live accepting' : 'locked closed',
 ];
 
+/**
+ * A square icon button for a table's action column.
+ *
+ * Renders a <Link> when given `to` and a <button> otherwise, so navigation
+ * stays a real link — middle-click and "open in new tab" keep working, which a
+ * button with an onClick handler silently breaks.
+ *
+ * `label` is mandatory and becomes both the accessible name and the hover
+ * title. An icon-only control without a name is not a space saving, it is a
+ * guessing game for anyone using a screen reader.
+ */
+function IconAction({ icon, label, onClick, to, state, tone = 'plain', size = 15 }) {
+  const cls =
+    tone === 'primary'
+      ? 'btn-primary'
+      : tone === 'outline'
+        ? 'btn-outline'
+        : tone === 'danger'
+          ? 'btn-ghost text-rose-600 hover:!bg-rose-500/10 hover:!text-rose-700 dark:text-rose-400'
+          : tone === 'ok'
+            ? 'btn-ghost text-emerald-600 hover:!bg-emerald-500/10 dark:text-emerald-400'
+            : 'btn-ghost';
+
+  const common = { className: `${cls} !px-2 !py-2`, 'aria-label': label, title: label };
+
+  if (to) {
+    return (
+      <Link to={to} state={state} {...common}>
+        <Icon name={icon} size={size} />
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} {...common}>
+      <Icon name={icon} size={size} />
+    </button>
+  );
+}
+
 export default function Batches() {
   const [query, setQuery] = useState('');
   const toast = useToast();

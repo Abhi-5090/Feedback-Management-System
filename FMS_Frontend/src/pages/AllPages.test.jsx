@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
+import { describe, it, expect, vi } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 /**
@@ -87,7 +88,8 @@ vi.mock('../api/endpoints.js', () => {
       years: ok([{ yearGroup: 'Third Year', batchCount: 2, openBatches: 0, classCount: 2, subjects: ['Coding', 'GenAI'], departments: [], sessionCount: 4, students: 200, submitted: 66, responseRate: 33, responses: 132, average: 4.25, lastFeedbackAt: new Date().toISOString() }]),
       trainers: ok({ trainers: [{ id: 't1', name: 'Bhargava R', shortName: 'Bhargav', email: 'b@n.com', isActive: true, classes: 4, batches: 2, responses: 66, average: 4.25, lastFeedbackAt: null, perParameter: [{ label: 'Content clarity', average: 4.3 }] }], parameters: ['Content clarity'], role: 'all' }),
       cohorts: ok([{ yearGroup: 'Third Year', batches: 2, openBatches: 0, expected: 200, submitted: 66, responses: 132, average: 4.25, responseRate: 33 }]),
-      mentorLoad: ok({ mentors: [{ id: 't1', name: 'Bhargava R', shortName: 'Bhargav', email: 'b@n.com', asMain: { classes: 4, batches: 2, responses: 66, average: 4.25 }, asSupport: { classes: 0, batches: 0, responses: 0, average: 0 }, totalClasses: 4, deployment: 'Main' }] }),
+      // Unwraps to r.data.mentors, so the mock is the ARRAY, not the wrapper.
+      mentorLoad: ok([{ id: 't1', name: 'Bhargava R', shortName: 'Bhargav', email: 'b@n.com', asMain: { classes: 4, batches: 2, responses: 66, average: 4.25 }, asSupport: { classes: 0, batches: 0, responses: 0, average: 0 }, totalClasses: 4, deployment: 'Main' }]),
       themes: ok({ themes: [], analysed: 0, positive: [], negative: [] }),
       comments: ok({ comments: [comment(3)], total: 132, page: 2, pages: 3, limit: 50, term: '', context: null }),
       deltas: ok({ days: 30, current: { average: 4.2, responses: 60 }, previous: { average: 4.0, responses: 50 }, change: { average: 0.2, responses: 10, responsesPct: 20 } }),
@@ -114,24 +116,63 @@ import { ToastProvider } from '../components/Toast.jsx';
 import { ThemeProvider } from '../theme/ThemeContext.jsx';
 import { AuthProvider } from '../auth/AuthContext.jsx';
 
+/**
+ * A boundary that RECORDS what it catches, rather than one that hides it.
+ *
+ * The first version of this test inspected console.error and gave a false pass
+ * on a page that genuinely threw: an error surfacing in a render triggered by
+ * setState (after data loads, which is when a table row is built) is reported
+ * by jsdom through its own virtual console, not through the spied
+ * console.error in the test's scope. Catching it explicitly is deterministic
+ * and covers both the synchronous mount and every later render.
+ */
+class Capture extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { caught: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { caught: error };
+  }
+
+  componentDidCatch(error) {
+    this.props.onCatch(error);
+  }
+
+  render() {
+    if (this.state.caught) return <div data-testid="page-crashed" />;
+    return this.props.children;
+  }
+}
+
 /** Mount one page at a route, inside the providers the real app supplies. */
 async function mountPage(Component, { path = '/', route = '/' } = {}) {
+  const caught = [];
   render(
-    <MemoryRouter initialEntries={[route]}>
-      <ThemeProvider>
-        <ToastProvider>
-          <AuthProvider>
-            <Routes>
-              <Route path={path} element={<Component />} />
-            </Routes>
-          </AuthProvider>
-        </ToastProvider>
-      </ThemeProvider>
-    </MemoryRouter>
+    <Capture onCatch={(e) => caught.push(e)}>
+      <MemoryRouter initialEntries={[route]}>
+        <ThemeProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <Routes>
+                <Route path={path} element={<Component />} />
+              </Routes>
+            </AuthProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </MemoryRouter>
+    </Capture>
   );
-  // Let the mount effects settle so an error thrown in one is attributed here.
+
+  /* Wait for the data-loading effects to resolve and re-render. A page that
+     renders an empty shell and then throws while building rows — which is what
+     /admin/batches did — only fails on that second pass. */
   await waitFor(() => expect(document.body).toBeTruthy());
-  await new Promise((r) => setTimeout(r, 0));
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 20));
+  });
+  return caught;
 }
 
 const PAGES = [
@@ -163,27 +204,22 @@ const PAGES = [
 ];
 
 describe('every page mounts without throwing', () => {
-  beforeEach(() => {
-    // A render error is reported through console.error; let it through so the
-    // failure message names the component rather than being swallowed.
-    vi.spyOn(console, 'error');
-  });
-
   for (const [name, load, opts] of PAGES) {
     it(name, async () => {
       const mod = await load();
       const Component = mod.default;
       expect(Component, `${name} has no default export`).toBeTypeOf('function');
-      await mountPage(Component, opts);
 
-      // React logs the thrown error before the boundary/test catches it, so an
-      // "is not defined" or "cannot read properties of undefined" here is the
-      // blank-screen bug reproduced.
-      const fatal = console.error.mock.calls
-        .flat()
-        .map(String)
-        .find((m) => /is not defined|is not a function|Cannot read propert|undefined is not/.test(m));
-      expect(fatal, `${name} threw during render: ${fatal}`).toBeUndefined();
+      const caught = await mountPage(Component, opts);
+
+      // The message is included in the assertion so a failure names the cause
+      // — "IconAction is not defined" rather than "expected 1 to be 0".
+      expect(
+        caught.map((e) => `${e.name}: ${e.message}`),
+        `${name} threw while rendering`
+      ).toEqual([]);
+      // And the page actually produced something.
+      expect(screen.queryByTestId('page-crashed')).not.toBeInTheDocument();
     });
   }
 });
