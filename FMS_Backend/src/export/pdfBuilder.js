@@ -79,6 +79,91 @@ function fmtDate(d) {
 
 // A shared table layout: gridlines, symmetric padding (→ vertical centering),
 // indigo header fill, zebra striping.
+/* A4 landscape, in points, with the page margins this document uses.
+   The detail table is the only thing in the report that can overflow, and it
+   overflows silently — pdfmake just draws past the edge — so its widths are
+   computed against this budget rather than guessed. */
+export const PAGE = {
+  width: 841.89, // A4 landscape
+  marginX: 32,
+  get printable() {
+    return this.width - this.marginX * 2; // 777.89pt
+  },
+};
+
+/**
+ * A tighter layout for the wide ratings table.
+ *
+ * The standard 8pt of horizontal padding is right for a three-column summary
+ * and ruinous for a fifteen-column grid: padding alone consumed 240pt of a
+ * 778pt page, leaving barely two thirds for the actual data. Halving it buys
+ * back 120pt — the difference between the table fitting and running off the
+ * sheet.
+ */
+const densePadding = { left: 4, right: 4 };
+
+const denseTableLayout = {
+  hLineWidth: () => 0.7,
+  vLineWidth: () => 0.7,
+  hLineColor: () => GRID,
+  vLineColor: () => GRID,
+  paddingTop: () => 5,
+  paddingBottom: () => 5,
+  paddingLeft: () => densePadding.left,
+  paddingRight: () => densePadding.right,
+  fillColor: (rowIndex) => (rowIndex === 0 ? BRAND : rowIndex % 2 === 0 ? ZEBRA : null),
+};
+
+/**
+ * Column widths for the detail table that are GUARANTEED to fit the page.
+ *
+ * pdfmake's 'auto' sizes a column to its widest unbroken content, so eight
+ * headers like "Real-world / practical examples" produced a table far wider
+ * than A4 and the right-hand columns — average, submitted — were simply drawn
+ * off the sheet. Nothing warns you; the PDF just renders cut off.
+ *
+ * Fixed numbers computed from the real budget make that impossible. Text
+ * columns take a proportional share of whatever the fixed columns leave, so
+ * adding or removing a rating parameter re-balances instead of overflowing.
+ */
+export function detailColumnWidths(paramCount) {
+  const columns = 4 + paramCount + 2; // batch, class, main, support, …, avg, submitted
+  const padding = columns * (densePadding.left + densePadding.right);
+  const borders = (columns + 1) * 0.7;
+  /* A few points held back. The arithmetic here is exact, but pdfmake rounds
+     and a glyph wider than expected in one header can nudge a column; landing
+     1pt inside the page is not a margin, it is luck. */
+  const SAFETY = 8;
+  const budget = PAGE.printable - padding - borders - SAFETY;
+
+  // Numeric columns are sized to their content, which is known and short.
+  const paramWidth = 20; // fits "4" under a two-character code
+  const avgWidth = 26; // "4.25"
+  const submittedWidth = 52; // "09 Sep 2026"
+
+  const flexible = budget - paramCount * paramWidth - avgWidth - submittedWidth;
+  /* Shares, not equal splits: a batch name is the longest field on the row and
+     a class name the shortest, so equal columns would wrap one to four lines
+     while the other sat half empty. */
+  const share = (fraction) => Math.max(40, Math.floor(flexible * fraction));
+
+  return {
+    columns,
+    padding,
+    borders,
+    widths: [
+      share(0.3), // batch
+      share(0.19), // class
+      share(0.255), // main mentors
+      share(0.255), // support mentors
+      ...Array.from({ length: paramCount }, () => paramWidth),
+      avgWidth,
+      submittedWidth,
+    ],
+    budget,
+  };
+}
+
 const centeredTableLayout = {
   hLineWidth: () => 0.7,
   vLineWidth: () => 0.7,
@@ -122,27 +207,37 @@ export function buildPdfDocDefinition(report) {
   ];
 
   /* ── Detail ratings table ─────────────────────────────────────────────────
-     Year | Batch | Class | Main | Support | [params] | Avg | Submitted
+     Batch | Class | Main | Support | P1…Pn | Avg | Submitted
 
-     Mentor columns are on the row because a session is co-taught: a printed
-     sheet is the artifact people actually circulate in a review meeting, and
-     "who was in the room" cannot be recovered from a class name. Kept to two
-     narrow columns (comma-joined names) so the landscape A4 still fits the
-     eight parameter columns without shrinking the type. */
+     The parameter columns are numbered rather than titled, with a legend
+     directly beneath. Spelling "Real-world / practical examples" above a
+     column that holds a single digit is what made this table wider than the
+     page: 'auto' sized each column to its header, and eight such headers
+     cannot coexist on A4 at a readable size. A code plus a legend costs one
+     glance and buys a table that fits and can actually be read across.
+
+     The Year column is gone. It repeated on every row, it is already stated in
+     the filter line of the page header, and the batch name carries it in
+     practice — one column of redundancy is expensive when the budget is this
+     tight.
+
+     Mentors stay on the row: a printed sheet is what gets circulated in a
+     review, and "who was in the room" cannot be recovered from a class name. */
+  const paramCodes = paramLabels.map((_, i) => `P${i + 1}`);
+  const { widths: detailWidths } = detailColumnWidths(paramLabels.length);
+
   const detailHeader = [
-    headerCell('Year'),
     headerCell('Batch'),
     headerCell('Class'),
     headerCell('Main mentor(s)'),
     headerCell('Support mentor(s)'),
-    ...paramLabels.map((l) => headerCell(l)),
+    ...paramCodes.map((c) => headerCell(c)),
     headerCell('Avg'),
     headerCell('Submitted'),
   ];
   const detailBody = [
     detailHeader,
     ...(report.rows || []).map((r) => [
-      dataCell(r.yearGroup || '—'),
       dataCell(r.batchName, 'left'),
       dataCell(r.className, 'left'),
       dataCell(r.mainMentors || '—', 'left'),
@@ -152,11 +247,22 @@ export function buildPdfDocDefinition(report) {
       dataCell(fmtDate(r.submittedAt)),
     ]),
   ];
-  const detailWidths = [
-    'auto', 'auto', 'auto', 'auto', 'auto',
-    ...paramLabels.map(() => 'auto'),
-    'auto', 'auto',
-  ];
+
+  /* The legend that makes the codes readable. Laid out in columns rather than
+     one long line so it stays compact under a landscape table. */
+  const legendEntries = paramCodes.map((code, i) => `${code} = ${paramLabels[i]}`);
+  const legendColumnCount = legendEntries.length > 4 ? 3 : 2;
+  const perColumn = Math.ceil(legendEntries.length / legendColumnCount);
+  const legend = {
+    columns: Array.from({ length: legendColumnCount }, (_, c) => ({
+      width: '*',
+      stack: legendEntries
+        .slice(c * perColumn, (c + 1) * perColumn)
+        .map((text) => ({ text, fontSize: 7.5, color: '#6b7280', margin: [0, 0, 0, 1] })),
+    })),
+    columnGap: 12,
+    margin: [0, 6, 0, 0],
+  };
 
   /* ── Comments, GROUPED BY SUBJECT ───────────────────────────────────────
      Batch and class each get their own column. They were previously joined
@@ -211,12 +317,24 @@ export function buildPdfDocDefinition(report) {
       layout: centeredTableLayout,
     },
     { text: 'Individual feedback', style: 'sectionTitle', margin: [0, 16, 0, 6] },
-    (report.rows || []).length
-      ? {
-          table: { headerRows: 1, widths: detailWidths, body: detailBody, dontBreakRows: true, keepWithHeaderRows: 1 },
-          layout: centeredTableLayout,
-        }
-      : { text: 'No feedback yet for this selection.', italics: true, color: '#888' },
+    ...((report.rows || []).length
+      ? [
+          {
+            table: {
+              headerRows: 1,
+              widths: detailWidths,
+              body: detailBody,
+              dontBreakRows: true,
+              keepWithHeaderRows: 1,
+            },
+            // Tighter padding and 8pt type: this is the one dense grid in the
+            // report, and the standard spacing does not fit on A4.
+            layout: denseTableLayout,
+            fontSize: 8,
+          },
+          legend,
+        ]
+      : [{ text: 'No feedback yet for this selection.', italics: true, color: '#888' }]),
   ];
 
   if (commentRows.length) {
@@ -238,7 +356,13 @@ export function buildPdfDocDefinition(report) {
         {
           table: {
             headerRows: 1,
-            widths: ['auto', 'auto', 'auto', 'auto', '*'],
+            /* Fixed, not 'auto', for the same reason the ratings table is:
+               an 'auto' column grows to its widest content, so one unusually
+               long batch name would squeeze the comment column — the whole
+               point of the table — down to nothing, or past the page edge.
+               Fixed leaders let long names wrap and give the comment every
+               remaining point. */
+            widths: [104, 84, 62, 34, '*'],
             body: commentTableFor(rows),
             dontBreakRows: true,
             keepWithHeaderRows: 1,
