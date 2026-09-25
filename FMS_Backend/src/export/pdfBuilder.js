@@ -68,6 +68,12 @@ function getPrinter() {
  *                   read as part of the brand rather than a cool grey-blue
  */
 const BRAND = '#EA5829';
+/* A light brand tint for the summary's column labels. Stacking two solid brand
+   rows — the batch band and the labels beneath it — puts a thick orange slab at
+   the top of every block and flattens the hierarchy: the batch name stops
+   looking like the heading it is. */
+const BRAND_TINT = '#FBDDD1';
+const BRAND_INK = '#A33C18';
 const GRID = '#E5E7EB';
 const ZEBRA = '#FDF3EF';
 const fmt = (n) => (Number(n) || 0).toFixed(2);
@@ -122,11 +128,13 @@ export function summaryColumnWidths() {
   // "4.25" centred; the rest of the page belongs to the two name columns.
   const ratingWidth = 76;
   const flexible = budget - ratingWidth;
-  // Batch names ("AI Ready 2028 · Batch-2") run longer than mentor names.
-  const batchWidth = Math.floor(flexible * 0.55);
-  const mentorWidth = Math.floor(flexible - batchWidth);
+  /* Subject names are short ("Java", "DS", "GenAI"); mentor names are not, and
+     a wrapped name in a three-column table is the thing that makes a printed
+     sheet look broken. */
+  const subjectWidth = Math.floor(flexible * 0.4);
+  const mentorWidth = Math.floor(flexible - subjectWidth);
 
-  return { columns, padding, borders, budget, widths: [batchWidth, mentorWidth, ratingWidth] };
+  return { columns, padding, borders, budget, widths: [subjectWidth, mentorWidth, ratingWidth] };
 }
 
 /**
@@ -214,74 +222,127 @@ const centeredTableLayout = {
   fillColor: (rowIndex) => (rowIndex === 0 ? BRAND : rowIndex % 2 === 0 ? ZEBRA : null),
 };
 
-/* Same gridlines as the rest of the report, with the roomier padding a
-   three-column table can afford and taller rows so the sheet is readable from
-   across a table. */
-const summaryTableLayout = {
-  hLineWidth: () => 0.7,
+
+/**
+ * The summary block's layout.
+ *
+ * Row 0 is the batch band and row 1 the column labels, so the zebra has to
+ * start counting from row 2 — striping by raw row index would tint the label
+ * row and leave the first real row white.
+ *
+ * `subjectBreaks` holds the body indices where a new subject starts; those get
+ * a heavier rule, which is what separates Java from DS without repeating a
+ * word or risking a blank cell at a page break.
+ */
+const summaryLayoutWithBreaks = (subjectBreaks = new Set()) => ({
+  hLineWidth: (i) => (subjectBreaks.has(i) ? 1.6 : 0.7),
   vLineWidth: () => 0.7,
-  hLineColor: () => GRID,
+  // Dark enough to actually read as a divider — #D9DDE3 was indistinguishable
+  // from the ordinary gridline it was supposed to stand out against.
+  hLineColor: (i) => (subjectBreaks.has(i) ? '#9AA1AC' : GRID),
   vLineColor: () => GRID,
   paddingTop: () => 7,
   paddingBottom: () => 7,
   paddingLeft: () => SUMMARY_PADDING.left,
   paddingRight: () => SUMMARY_PADDING.right,
-  fillColor: (rowIndex) => (rowIndex === 0 ? BRAND : rowIndex % 2 === 0 ? ZEBRA : null),
-};
+  fillColor: (rowIndex) => {
+    if (rowIndex === 0) return BRAND; // batch band — the heading
+    if (rowIndex === 1) return BRAND_TINT; // column labels — subordinate to it
+    return rowIndex % 2 === 0 ? ZEBRA : null;
+  },
+});
 
 const headerCell = (text) => ({ text, bold: true, color: 'white', alignment: 'center' });
+// Column labels sitting on BRAND_TINT rather than on solid brand.
+const subHeaderCell = (text) => ({ text, bold: true, color: BRAND_INK, alignment: 'center' });
 const dataCell = (text, align = 'center') => ({ text: String(text ?? ''), alignment: align });
 
 /**
- * The crisp dashboard report: Batch | Mentor | Rating, and nothing else.
+ * The crisp dashboard report: one block per batch, Subject | Mentor | Rating.
  *
  * Every other section the full report prints — the per-parameter averages, the
  * per-response grid, the comment tables — answers a question you ask from a
  * drill-down, and each of them is still one click away as its own export. What
- * a dashboard-wide PDF is for is the overview: who teaches which cohort, and
- * how that cohort rates them. Printing the other four sections around it meant
- * the answer arrived on page 3 of 94.
+ * a dashboard-wide PDF is for is the overview: who teaches what, to which
+ * cohort, and how that cohort rates them.
+ *
+ * The batch is a BAND across the top of its own block rather than a column
+ * repeated down the page. "2nd Year Credit Course" printed four times in
+ * column one is four times the ink saying one thing, and it pushes the two
+ * facts that do change — the subject and the mentor — into the narrow half of
+ * the sheet. Stated once, the batch reads as a heading and the columns below
+ * it carry only what varies.
  */
 function buildSummaryDocDefinition(report) {
   const rows = report.mentorRows || [];
   const { widths } = summaryColumnWidths();
 
-  const body = [
-    [headerCell('Batch'), headerCell('Mentor'), headerCell('Rating (out of 5)')],
-    ...rows.map((r) => [
-      /* The batch is repeated on every row rather than printed once per group.
-         A blank leading cell reads cleanly until the group straddles a page
-         break, and then the reader is looking at mentors with no idea whose
-         batch they belong to. */
-      dataCell(r.batchName || '—', 'left'),
-      dataCell(r.mentorName || '—', 'left'),
-      dataCell(r.average == null ? '—' : fmt(r.average)),
-    ]),
-  ];
+  /* Group into batches, preserving the order the service sorted them into
+     (batch, then subject, then rating). A Map keeps insertion order, so no
+     second sort is needed and the two orderings cannot drift apart. */
+  const byBatch = new Map();
+  for (const r of rows) {
+    const key = r.batchName || '—';
+    if (!byBatch.has(key)) byBatch.set(key, []);
+    byBatch.get(key).push(r);
+  }
+
+  /** One self-contained block: batch band, column labels, then its sessions. */
+  const blockFor = (batchName, batchRows) => {
+    const body = [
+      [{ text: batchName, colSpan: 3, style: 'batchBand' }, {}, {}],
+      [subHeaderCell('Subject'), subHeaderCell('Mentor'), subHeaderCell('Rating (out of 5)')],
+      ...batchRows.map((r) => [
+        dataCell(r.className || '—', 'left'),
+        dataCell(r.mentorName || '—', 'left'),
+        dataCell(r.average == null ? '—' : fmt(r.average)),
+      ]),
+    ];
+
+    /* Where the subject changes, so the layout can rule a heavier line there.
+       The subject is repeated on every row rather than blanked after the first:
+       a blank leading cell reads cleanly until the group straddles a page
+       break, and then the reader is looking at mentors under no subject at
+       all. A rule groups them without ever lying about which row is which. */
+    const subjectBreaks = new Set();
+    batchRows.forEach((r, i) => {
+      if (i > 0 && r.className !== batchRows[i - 1].className) subjectBreaks.add(i + 2);
+    });
+
+    return {
+      table: {
+        // Both the band and the column labels repeat after a page break, so a
+        // continued batch never arrives as an unlabelled list of names.
+        headerRows: 2,
+        widths,
+        body,
+        dontBreakRows: true,
+        keepWithHeaderRows: 1,
+      },
+      layout: summaryLayoutWithBreaks(subjectBreaks),
+      fontSize: 10,
+      margin: [0, 0, 0, 14],
+    };
+  };
 
   const content = rows.length
-    ? [
+    ? [...byBatch.entries()].map(([batchName, batchRows]) => blockFor(batchName, batchRows))
+    : [
         {
-          table: {
-            headerRows: 1,
-            widths,
-            body,
-            // The header repeats on every page (headerRows), so a row must
-            // never be split across the boundary underneath it.
-            dontBreakRows: true,
-            keepWithHeaderRows: 1,
-          },
-          layout: summaryTableLayout,
-          fontSize: 10,
+          text: 'No feedback has been submitted for this selection yet.',
+          italics: true,
+          color: '#888',
         },
-      ]
-    : [{ text: 'No feedback has been submitted for this selection yet.', italics: true, color: '#888' }];
+      ];
 
   return {
     pageOrientation: 'portrait',
     pageSize: 'A4',
     pageMargins: [PAGE_PORTRAIT.marginX, 92, PAGE_PORTRAIT.marginX, 44],
     defaultStyle: { font: 'Roboto', fontSize: 10, color: '#1f2430' },
+    styles: {
+      batchBand: { bold: true, fontSize: 11, color: 'white', alignment: 'left' },
+    },
 
     header: () => ({
       margin: [PAGE_PORTRAIT.marginX, 24, PAGE_PORTRAIT.marginX, 0],
@@ -290,7 +351,9 @@ function buildSummaryDocDefinition(report) {
         {
           text: `${report.overall?.feedbackCount ?? 0} responses   ·   overall ${fmt(
             report.overall?.overallAverage ?? 0
-          )} / 5   ·   ${rows.length} mentor${rows.length === 1 ? '' : 's'}`,
+          )} / 5   ·   ${byBatch.size} batch${byBatch.size === 1 ? '' : 'es'}   ·   ${
+            rows.length
+          } session${rows.length === 1 ? '' : 's'}`,
           fontSize: 8.5,
           color: '#666',
           margin: [0, 3, 0, 0],
@@ -298,12 +361,7 @@ function buildSummaryDocDefinition(report) {
         {
           columns: [
             { text: `Filters: ${report.filterContext || 'All data'}`, fontSize: 8, color: '#999' },
-            {
-              text: fmtDate(report.generatedAt),
-              alignment: 'right',
-              fontSize: 8,
-              color: '#999',
-            },
+            { text: fmtDate(report.generatedAt), alignment: 'right', fontSize: 8, color: '#999' },
           ],
           margin: [0, 2, 0, 0],
         },

@@ -1085,8 +1085,13 @@ export async function batchCollections({ batchId, scopeTrainerId, classId } = {}
 }
 
 /**
- * One row per (batch, mentor): the batch's name, the mentor who taught it, and
- * the average rating their sessions in that batch received.
+ * One row per (batch, subject, mentor): the batch, the subject taught, the
+ * mentor who taught it, and the average rating that session received.
+ *
+ * Granularity is the SESSION, not the batch. A cohort like "2nd Year Credit
+ * Course" runs several subjects — Java and DS — and collapsing them to one row
+ * per mentor hides which subject a score belongs to, which is the first thing
+ * anyone reading the sheet wants to know.
  *
  * This is the whole content of the dashboard PDF. It is deliberately NOT built
  * from `detailRows` — that returns one row per submission (tens of thousands of
@@ -1120,7 +1125,7 @@ export async function mentorRatings(match, { onlyMentorId } = {}) {
     { $unwind: '$ratings' },
     {
       $group: {
-        _id: { batch: '$batch', mentor: '$mentors' },
+        _id: { batch: '$batch', class: '$class', mentor: '$mentors' },
         starSum: { $sum: '$ratings.stars' },
         starCount: { $sum: 1 },
         // Distinct submissions, not rating lines: one response carries one
@@ -1129,12 +1134,15 @@ export async function mentorRatings(match, { onlyMentorId } = {}) {
       },
     },
     { $lookup: { from: 'batches', localField: '_id.batch', foreignField: '_id', as: 'batchDoc' } },
+    { $lookup: { from: 'classes', localField: '_id.class', foreignField: '_id', as: 'classDoc' } },
     { $lookup: { from: 'users', localField: '_id.mentor', foreignField: '_id', as: 'mentorDoc' } },
     {
       $project: {
         _id: 0,
         batchId: '$_id.batch',
+        classId: '$_id.class',
         mentorId: '$_id.mentor',
+        className: { $ifNull: [{ $first: '$classDoc.name' }, 'Unknown subject'] },
         batchName: { $ifNull: [{ $first: '$batchDoc.name' }, 'Unknown batch'] },
         yearGroup: { $ifNull: [{ $first: '$batchDoc.yearGroup' }, ''] },
         mentorName: {
@@ -1161,15 +1169,18 @@ export async function mentorRatings(match, { onlyMentorId } = {}) {
     .map((r) => ({
       ...r,
       batchId: String(r.batchId),
+      classId: String(r.classId),
       mentorId: String(r.mentorId),
       average: round(r.average, 2),
     }))
-    /* Batch first so the sheet reads as one block per cohort, then by rating
-       descending — the order someone reviewing a batch actually wants, with
-       the sessions that need attention at the bottom of their group. */
+    /* Batch, then subject, so the sheet reads as one block per cohort and one
+       run per subject within it — which is what lets the printed table state
+       each name only once. Rating descending inside a subject puts whatever
+       needs attention at the bottom of its own group. */
     .sort(
       (a, b) =>
         a.batchName.localeCompare(b.batchName) ||
+        a.className.localeCompare(b.className) ||
         b.average - a.average ||
         a.mentorName.localeCompare(b.mentorName)
     );

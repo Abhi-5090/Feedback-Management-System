@@ -302,8 +302,9 @@ describe('PDF detail table fits the page', () => {
    section back.
    ════════════════════════════════════════════════════════════════════════ */
 
-const mentorRow = (batchName, mentorName, average) => ({
+const mentorRow = (batchName, className, mentorName, average) => ({
   batchName,
+  className,
   mentorName,
   average,
   responses: 12,
@@ -359,32 +360,60 @@ function rightMostMark(buf) {
 }
 
 describe('crisp dashboard summary PDF', () => {
+  /* The shape the user described: one cohort, two subjects, several mentors.
+     "2nd Year Credit Course is there, in that we have two things, like a Java
+     and DS" — the subject has to be on the sheet, and the batch name must not
+     be printed once per mentor. */
   const rows = [
-    mentorRow('AI Ready 2028 · Batch-1', 'Bhargav', 4.61),
-    mentorRow('AI Ready 2028 · Batch-1', 'Suneeta', 3.94),
-    mentorRow('Industry Readiness Batch - 2', 'Prasanth K', 4.2),
+    mentorRow('2nd Year Credit Course', 'DS', 'Abraham', 4.68),
+    mentorRow('2nd Year Credit Course', 'DS', 'Bhargav', 4.68),
+    mentorRow('2nd Year Credit Course', 'JAVA', 'Naveen', 4.74),
+    mentorRow('AI Ready 2027 · Batch-1', 'Coding', 'Harika', 3.36),
   ];
   const def = buildPdfDocDefinition(summaryReport(rows));
 
-  test('holds exactly ONE table', () => {
-    // Not two, not five: no parameter averages, no comment sections.
-    expect(tables(def)).toHaveLength(1);
+  const blocks = () => tables(def);
+  /** The batch band is the first row of a block, spanning every column. */
+  const bandOf = (t) => cell(t.body[0][0]);
+
+  test('one block per BATCH, not one row per mentor', () => {
+    expect(blocks()).toHaveLength(2);
+    expect(blocks().map(bandOf)).toEqual(['2nd Year Credit Course', 'AI Ready 2027 · Batch-1']);
   });
 
-  test('the columns are Batch, Mentor, Rating — and only those', () => {
-    const header = tables(def)[0].body[0].map(cell);
-    expect(header).toEqual(['Batch', 'Mentor', 'Rating (out of 5)']);
+  test('the batch name is printed ONCE, however many mentors it has', () => {
+    /* The complaint that prompted this layout: "2nd Year Credit Course is
+       there, it's for four times". Counting every occurrence across the whole
+       document is the only assertion that actually catches a regression to a
+       repeated column. */
+    const occurrences = texts(def).filter((t) => t === '2nd Year Credit Course');
+    expect(occurrences).toHaveLength(1);
   });
 
-  test('one row per mentor per batch, batch name repeated on every row', () => {
-    const body = tables(def)[0].body.slice(1).map((r) => r.map(cell));
+  test('the band spans the full width so nothing sits beside it', () => {
+    const band = blocks()[0].body[0];
+    expect(band[0].colSpan).toBe(3);
+    expect(band).toHaveLength(3); // the two placeholders pdfmake requires
+  });
+
+  test('the columns beneath a band are Subject, Mentor, Rating', () => {
+    expect(blocks()[0].body[1].map(cell)).toEqual(['Subject', 'Mentor', 'Rating (out of 5)']);
+  });
+
+  test('every subject in a batch appears, each row naming its own', () => {
+    const body = blocks()[0].body.slice(2).map((r) => r.map(cell));
     expect(body).toEqual([
-      ['AI Ready 2028 · Batch-1', 'Bhargav', '4.61'],
-      // Repeated, not blanked: a group split across a page break must not
-      // leave mentors sitting under no batch at all.
-      ['AI Ready 2028 · Batch-1', 'Suneeta', '3.94'],
-      ['Industry Readiness Batch - 2', 'Prasanth K', '4.20'],
+      ['DS', 'Abraham', '4.68'],
+      ['DS', 'Bhargav', '4.68'],
+      // Repeated rather than blanked after the first: a group that straddles a
+      // page break would otherwise leave a mentor under no subject at all.
+      ['JAVA', 'Naveen', '4.74'],
     ]);
+  });
+
+  test('both the band and the column labels repeat after a page break', () => {
+    // headerRows: 2 — a continued batch must not arrive as an unlabelled list.
+    expect(blocks()[0].headerRows).toBe(2);
   });
 
   test('prints no comments, no per-parameter breakdown, no submission dates', () => {
@@ -402,8 +431,8 @@ describe('crisp dashboard summary PDF', () => {
 
   test('a mentor with no rating shows a dash, not 0.00', () => {
     // 0.00 is a real score a mentor could receive; "no data" must not wear it.
-    const d = buildPdfDocDefinition(summaryReport([mentorRow('B', 'M', null)]));
-    expect(cell(tables(d)[0].body[1][2])).toBe('—');
+    const d = buildPdfDocDefinition(summaryReport([mentorRow('B', 'Java', 'M', null)]));
+    expect(cell(tables(d)[0].body[2][2])).toBe('—');
   });
 
   test('an empty selection says so instead of printing a headerless table', () => {
@@ -412,11 +441,26 @@ describe('crisp dashboard summary PDF', () => {
     expect(texts(d).join(' ')).toMatch(/No feedback has been submitted/i);
   });
 
-  test('the header carries the totals and the active filters', () => {
+  test('the header counts batches and sessions, not just responses', () => {
     const head = JSON.stringify(def.header());
     expect(head).toContain('128 responses');
     expect(head).toContain('4.17 / 5');
+    expect(head).toContain('2 batches');
+    expect(head).toContain('4 sessions');
     expect(head).toContain('All data');
+  });
+
+  test('a single-batch, single-mentor export still reads as a block', () => {
+    const d = buildPdfDocDefinition(summaryReport([mentorRow('Solo', 'Java', 'Naveen', 5)]));
+    expect(JSON.stringify(d.header())).toContain('1 batch ');
+    const body = tables(d)[0].body;
+    // The band's two trailing cells are the empty placeholders a colSpan needs.
+    expect(cell(body[0][0])).toBe('Solo');
+    expect(body[0].slice(1)).toEqual([{}, {}]);
+    expect(body.slice(1).map((r) => r.map(cell))).toEqual([
+      ['Subject', 'Mentor', 'Rating (out of 5)'],
+      ['Java', 'Naveen', '5.00'],
+    ]);
   });
 
   describe('alignment', () => {
@@ -447,6 +491,7 @@ describe('crisp dashboard summary PDF', () => {
       const long = Array.from({ length: 40 }, (_, i) =>
         mentorRow(
           'Advanced Placement Readiness 2026 · Batch-3',
+          i % 3 ? 'Industry Readiness 1' : 'Data Structures',
           i % 2 ? 'Harshavardhini' : 'Kiran Immandi',
           3 + (i % 20) / 10
         )

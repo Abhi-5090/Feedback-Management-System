@@ -1,6 +1,6 @@
 /**
- * The dashboard export's summary: one row per (batch, mentor) with the rating
- * that mentor's sessions in that batch received.
+ * The dashboard export's summary: one row per (batch, subject, mentor) with the
+ * rating that session received.
  *
  * This is now the ENTIRE content of the dashboard PDF, so the aggregation
  * behind it has to be right about the things that are easy to get wrong and
@@ -153,15 +153,58 @@ describe('mentorRatings', () => {
     await expect(mentorRatings(buildFeedbackMatch({}))).resolves.toEqual([]);
   });
 
-  test('rows are ordered by batch, then by rating descending', async () => {
+  test('rows are ordered by batch, then subject, then rating descending', async () => {
     await submitTo(codingBatch, [coding._id], 4);
     await submitTo(genaiBatch, [genai._id], 2);
     const rows = await mentorRatings(buildFeedbackMatch({}));
-    expect(rows.map((r) => `${r.batchName}/${r.mentorName}`)).toEqual([
-      'Coding Cohort/Alice',
-      'Coding Cohort/Bob',
-      'GenAI Cohort/Bob',
+    expect(rows.map((r) => `${r.batchName}/${r.className}/${r.mentorName}`)).toEqual([
+      'Coding Cohort/Coding/Alice',
+      'Coding Cohort/Coding/Bob',
+      'GenAI Cohort/GenAI/Bob',
     ]);
+  });
+
+  test('a batch teaching TWO subjects reports each one separately', async () => {
+    /* The case that prompted the layout: "2nd Year Credit Course is there, in
+       that we have two things, like a Java and DS". One cohort, two subjects,
+       two different scores — collapsing them to one row per mentor would
+       average away the only distinction that matters. */
+    const java = await makeClass(null, 'JAVA');
+    const ds = await makeClass(null, 'DS');
+    const credit = await makeBatch({
+      classes: [
+        { class: java._id, mainTrainers: [alice._id], supportTrainers: [] },
+        { class: ds._id, mainTrainers: [bob._id], supportTrainers: [] },
+      ],
+      name: '2nd Year Credit Course',
+    });
+    await submitTo(credit, [java._id, ds._id], 5);
+
+    const rows = (await mentorRatings(buildFeedbackMatch({}))).filter(
+      (r) => r.batchName === '2nd Year Credit Course'
+    );
+    expect(rows.map((r) => `${r.className}/${r.mentorName}`)).toEqual(['DS/Bob', 'JAVA/Alice']);
+  });
+
+  test('a mentor teaching two subjects in one batch gets a row for each', async () => {
+    const java = await makeClass(null, 'JAVA');
+    const ds = await makeClass(null, 'DS');
+    const credit = await makeBatch({
+      classes: [
+        { class: java._id, mainTrainers: [alice._id], supportTrainers: [] },
+        { class: ds._id, mainTrainers: [alice._id], supportTrainers: [] },
+      ],
+      name: '2nd Year Credit Course',
+    });
+    await submitTo(credit, [java._id, ds._id], 4);
+
+    const rows = (await mentorRatings(buildFeedbackMatch({}))).filter(
+      (r) => r.batchName === '2nd Year Credit Course'
+    );
+    // Two rows for Alice, one per subject — not one row averaging both.
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.className)).toEqual(['DS', 'JAVA']);
+    expect(rows.every((r) => r.mentorName === 'Alice')).toBe(true);
   });
 });
 
