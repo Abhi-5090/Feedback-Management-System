@@ -91,6 +91,44 @@ export const PAGE = {
   },
 };
 
+// Roomier than the dense grid: the summary has three columns, not fifteen.
+const SUMMARY_PADDING = { left: 10, right: 10 };
+
+/* The summary PDF is PORTRAIT. Three columns on a landscape sheet leave two
+   thirds of the page empty, which reads as a table someone forgot to finish.
+   Portrait A4 is also the shape people print and file. */
+export const PAGE_PORTRAIT = {
+  width: 595.28, // A4 portrait
+  marginX: 40,
+  get printable() {
+    return this.width - this.marginX * 2; // 515.28pt
+  },
+};
+
+/**
+ * Column widths for the three-column summary table: Batch | Mentor | Rating.
+ *
+ * Computed against the real budget for the same reason the detail table's are
+ * — pdfmake draws straight past the page edge without complaint — and exported
+ * so a test can assert the fit rather than trusting the arithmetic.
+ */
+export function summaryColumnWidths() {
+  const columns = 3;
+  const padding = columns * (SUMMARY_PADDING.left + SUMMARY_PADDING.right);
+  const borders = (columns + 1) * 0.7;
+  const SAFETY = 6;
+  const budget = PAGE_PORTRAIT.printable - padding - borders - SAFETY;
+
+  // "4.25" centred; the rest of the page belongs to the two name columns.
+  const ratingWidth = 76;
+  const flexible = budget - ratingWidth;
+  // Batch names ("AI Ready 2028 · Batch-2") run longer than mentor names.
+  const batchWidth = Math.floor(flexible * 0.55);
+  const mentorWidth = Math.floor(flexible - batchWidth);
+
+  return { columns, padding, borders, budget, widths: [batchWidth, mentorWidth, ratingWidth] };
+}
+
 /**
  * A tighter layout for the wide ratings table.
  *
@@ -176,8 +214,131 @@ const centeredTableLayout = {
   fillColor: (rowIndex) => (rowIndex === 0 ? BRAND : rowIndex % 2 === 0 ? ZEBRA : null),
 };
 
+/* Same gridlines as the rest of the report, with the roomier padding a
+   three-column table can afford and taller rows so the sheet is readable from
+   across a table. */
+const summaryTableLayout = {
+  hLineWidth: () => 0.7,
+  vLineWidth: () => 0.7,
+  hLineColor: () => GRID,
+  vLineColor: () => GRID,
+  paddingTop: () => 7,
+  paddingBottom: () => 7,
+  paddingLeft: () => SUMMARY_PADDING.left,
+  paddingRight: () => SUMMARY_PADDING.right,
+  fillColor: (rowIndex) => (rowIndex === 0 ? BRAND : rowIndex % 2 === 0 ? ZEBRA : null),
+};
+
 const headerCell = (text) => ({ text, bold: true, color: 'white', alignment: 'center' });
 const dataCell = (text, align = 'center') => ({ text: String(text ?? ''), alignment: align });
+
+/**
+ * The crisp dashboard report: Batch | Mentor | Rating, and nothing else.
+ *
+ * Every other section the full report prints — the per-parameter averages, the
+ * per-response grid, the comment tables — answers a question you ask from a
+ * drill-down, and each of them is still one click away as its own export. What
+ * a dashboard-wide PDF is for is the overview: who teaches which cohort, and
+ * how that cohort rates them. Printing the other four sections around it meant
+ * the answer arrived on page 3 of 94.
+ */
+function buildSummaryDocDefinition(report) {
+  const rows = report.mentorRows || [];
+  const { widths } = summaryColumnWidths();
+
+  const body = [
+    [headerCell('Batch'), headerCell('Mentor'), headerCell('Rating (out of 5)')],
+    ...rows.map((r) => [
+      /* The batch is repeated on every row rather than printed once per group.
+         A blank leading cell reads cleanly until the group straddles a page
+         break, and then the reader is looking at mentors with no idea whose
+         batch they belong to. */
+      dataCell(r.batchName || '—', 'left'),
+      dataCell(r.mentorName || '—', 'left'),
+      dataCell(r.average == null ? '—' : fmt(r.average)),
+    ]),
+  ];
+
+  const content = rows.length
+    ? [
+        {
+          table: {
+            headerRows: 1,
+            widths,
+            body,
+            // The header repeats on every page (headerRows), so a row must
+            // never be split across the boundary underneath it.
+            dontBreakRows: true,
+            keepWithHeaderRows: 1,
+          },
+          layout: summaryTableLayout,
+          fontSize: 10,
+        },
+      ]
+    : [{ text: 'No feedback has been submitted for this selection yet.', italics: true, color: '#888' }];
+
+  return {
+    pageOrientation: 'portrait',
+    pageSize: 'A4',
+    pageMargins: [PAGE_PORTRAIT.marginX, 92, PAGE_PORTRAIT.marginX, 44],
+    defaultStyle: { font: 'Roboto', fontSize: 10, color: '#1f2430' },
+
+    header: () => ({
+      margin: [PAGE_PORTRAIT.marginX, 24, PAGE_PORTRAIT.marginX, 0],
+      stack: [
+        { text: report.title, fontSize: 15, bold: true, color: BRAND },
+        {
+          text: `${report.overall?.feedbackCount ?? 0} responses   ·   overall ${fmt(
+            report.overall?.overallAverage ?? 0
+          )} / 5   ·   ${rows.length} mentor${rows.length === 1 ? '' : 's'}`,
+          fontSize: 8.5,
+          color: '#666',
+          margin: [0, 3, 0, 0],
+        },
+        {
+          columns: [
+            { text: `Filters: ${report.filterContext || 'All data'}`, fontSize: 8, color: '#999' },
+            {
+              text: fmtDate(report.generatedAt),
+              alignment: 'right',
+              fontSize: 8,
+              color: '#999',
+            },
+          ],
+          margin: [0, 2, 0, 0],
+        },
+        {
+          canvas: [
+            {
+              type: 'line',
+              x1: 0,
+              y1: 8,
+              x2: PAGE_PORTRAIT.printable,
+              y2: 8,
+              lineWidth: 0.5,
+              lineColor: GRID,
+            },
+          ],
+        },
+      ],
+    }),
+
+    footer: (currentPage, pageCount) => ({
+      margin: [PAGE_PORTRAIT.marginX, 10, PAGE_PORTRAIT.marginX, 0],
+      columns: [
+        { text: 'Feedback Management System', fontSize: 7, color: '#aaa' },
+        {
+          text: `Page ${currentPage} of ${pageCount}`,
+          alignment: 'right',
+          fontSize: 8,
+          color: '#888',
+        },
+      ],
+    }),
+
+    content,
+  };
+}
 
 /**
  * @param {object} report  same shape produced by exportController.assembleReport
@@ -194,6 +355,8 @@ const dataCell = (text, align = 'center') => ({ text: String(text ?? ''), alignm
  * order.
  */
 export function buildPdfDocDefinition(report) {
+  if (report.layout === 'summary') return buildSummaryDocDefinition(report);
+
   const paramLabels = (report.parameters || []).map((p) => p.label);
 
   // ── Summary table: Parameter | Average | Responses (all single-line) ─────

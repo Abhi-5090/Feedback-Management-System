@@ -11,6 +11,7 @@ import {
   roleSplitStats,
   perParameterAverages,
   detailRows,
+  mentorRatings,
   staffs,
   shapeEntry,
 } from '../services/analyticsService.js';
@@ -19,12 +20,16 @@ import { buildPdf } from '../export/pdfBuilder.js';
 import { recordAudit } from '../services/auditService.js';
 import { trainerComparison } from '../services/insightsService.js';
 
-/** Assemble the shared report payload consumed by both builders. */
-async function assembleReport(match, { title, filterContext, roleSplit }) {
+/** Assemble the shared report payload consumed by both builders.
+ *
+ * `detail` is opt-out because the dashboard PDF no longer prints per-response
+ * rows, and fetching tens of thousands of them to discard every one is the
+ * slowest thing this endpoint does. */
+async function assembleReport(match, { title, filterContext, roleSplit, detail: wantDetail = true }) {
   const [overall, summary, detail] = await Promise.all([
     overallStats(match),
     perParameterAverages(match),
-    detailRows(match),
+    wantDetail ? detailRows(match) : Promise.resolve({ parameters: [], rows: [], truncated: false, limit: 0 }),
   ]);
   return {
     title,
@@ -245,17 +250,39 @@ export const exportAdminDashboard = asyncHandler(async (req, res) => {
   if (trainerId) ctxParts.push(`mentor=${trainerId}`);
   if (role) ctxParts.push(`role=${role}`);
 
-  const report = await assembleReport(match, {
-    title: 'Admin Dashboard — Feedback Export',
-    filterContext: ctxParts.length ? ctxParts.join(' · ') : 'All data',
-  });
+  /* The dashboard PDF is a one-page-per-few-batches summary, not a dump.
+     It answers exactly one question — "which mentor is scoring what, in which
+     batch?" — and prints nothing else: no per-parameter grid, no per-response
+     rows, no comments. The old version was 94 landscape pages of raw
+     submissions, which nobody reads and nobody can circulate.
+
+     The spreadsheet keeps the full detail. A PDF is for reading and handing
+     round; an xlsx is for analysis, and that is where row-level data belongs.
+     So only the PDF drops the detail — and because it does, it no longer pays
+     to fetch it. */
+  const crisp = format === 'pdf';
+
+  const [report, mentorRows] = await Promise.all([
+    assembleReport(match, {
+      title: 'Feedback Summary — Mentor Ratings',
+      filterContext: ctxParts.length ? ctxParts.join(' · ') : 'All data',
+      detail: !crisp,
+    }),
+    mentorRatings(match, { onlyMentorId: trainerId }),
+  ]);
+  report.mentorRows = mentorRows;
+  if (crisp) report.layout = 'summary';
 
   recordAudit(req, {
     action: 'export.download',
     entity: 'dashboard',
     entityId: '',
     entityName: 'Admin dashboard',
-    meta: { format, rows: report.rows.length, truncated: report.truncated },
+    meta: {
+      format,
+      rows: crisp ? mentorRows.length : report.rows.length,
+      truncated: report.truncated,
+    },
   });
 
   await sendReport(res, report, format, 'admin_dashboard');

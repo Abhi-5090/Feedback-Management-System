@@ -1,5 +1,13 @@
 import { jest } from '@jest/globals';
-import { buildPdfDocDefinition, buildPdf, detailColumnWidths, PAGE } from '../export/pdfBuilder.js';
+import zlib from 'zlib';
+import {
+  buildPdfDocDefinition,
+  buildPdf,
+  detailColumnWidths,
+  summaryColumnWidths,
+  PAGE,
+  PAGE_PORTRAIT,
+} from '../export/pdfBuilder.js';
 
 jest.setTimeout(30_000);
 
@@ -279,5 +287,187 @@ describe('PDF detail table fits the page', () => {
     walk(def.content);
     const detail = found.find((t) => String(t.body[0][0].text) === 'Batch');
     expect(detail.body[0].map((c) => String(c.text))).not.toContain('Year');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+   The crisp dashboard summary — Batch | Mentor | Rating, and nothing else.
+
+   The dashboard used to export the full report: per-parameter averages, one
+   row per submission, and every comment. On real data that was 94 landscape
+   pages, and the thing anyone actually wanted from it — how each mentor is
+   scoring in each batch — was buried inside it. These tests pin the new
+   layout down to "three columns, one table, no comments", because the easy
+   way to lose it is for a later change to the shared builder to quietly put a
+   section back.
+   ════════════════════════════════════════════════════════════════════════ */
+
+const mentorRow = (batchName, mentorName, average) => ({
+  batchName,
+  mentorName,
+  average,
+  responses: 12,
+});
+
+const summaryReport = (mentorRows) => ({
+  layout: 'summary',
+  title: 'Feedback Summary — Mentor Ratings',
+  filterContext: 'All data',
+  generatedAt: new Date('2026-09-10T08:00:00Z'),
+  overall: { feedbackCount: 128, overallAverage: 4.17 },
+  mentorRows,
+});
+
+/** Right-most x coordinate anything is DRAWN at, across every page. */
+function rightMostMark(buf) {
+  const num = '(-?\\d+(?:\\.\\d+)?)';
+  const ops = [
+    new RegExp(`${num} ${num} ${num} ${num} re`, 'g'), // rectangles (fills, rules)
+    new RegExp(`${num} ${num} (?:m|l)\\b`, 'g'), // path moves/lines
+    new RegExp(`${num} ${num} (?:Td|TD)\\b`, 'g'), // text placement
+  ];
+  let maxX = -Infinity;
+  let i = 0;
+  while (true) {
+    const start = buf.indexOf('stream', i);
+    if (start === -1) break;
+    let from = start + 6;
+    if (buf[from] === 0x0d) from++;
+    if (buf[from] === 0x0a) from++;
+    const end = buf.indexOf('endstream', from);
+    if (end === -1) break;
+    let content = null;
+    try {
+      content = zlib.inflateSync(buf.subarray(from, end)).toString('latin1');
+    } catch {
+      /* font programs and other binary streams are not page content */
+    }
+    if (content) {
+      for (const [opIndex, re] of ops.entries()) {
+        re.lastIndex = 0;
+        let m;
+        while ((m = re.exec(content))) {
+          // A rectangle's right edge is x + width; everything else starts at x.
+          const x = opIndex === 0 ? +m[1] + +m[3] : +m[1];
+          if (Number.isFinite(x) && x > maxX) maxX = x;
+        }
+      }
+    }
+    i = end + 9;
+  }
+  return maxX;
+}
+
+describe('crisp dashboard summary PDF', () => {
+  const rows = [
+    mentorRow('AI Ready 2028 · Batch-1', 'Bhargav', 4.61),
+    mentorRow('AI Ready 2028 · Batch-1', 'Suneeta', 3.94),
+    mentorRow('Industry Readiness Batch - 2', 'Prasanth K', 4.2),
+  ];
+  const def = buildPdfDocDefinition(summaryReport(rows));
+
+  test('holds exactly ONE table', () => {
+    // Not two, not five: no parameter averages, no comment sections.
+    expect(tables(def)).toHaveLength(1);
+  });
+
+  test('the columns are Batch, Mentor, Rating — and only those', () => {
+    const header = tables(def)[0].body[0].map(cell);
+    expect(header).toEqual(['Batch', 'Mentor', 'Rating (out of 5)']);
+  });
+
+  test('one row per mentor per batch, batch name repeated on every row', () => {
+    const body = tables(def)[0].body.slice(1).map((r) => r.map(cell));
+    expect(body).toEqual([
+      ['AI Ready 2028 · Batch-1', 'Bhargav', '4.61'],
+      // Repeated, not blanked: a group split across a page break must not
+      // leave mentors sitting under no batch at all.
+      ['AI Ready 2028 · Batch-1', 'Suneeta', '3.94'],
+      ['Industry Readiness Batch - 2', 'Prasanth K', '4.20'],
+    ]);
+  });
+
+  test('prints no comments, no per-parameter breakdown, no submission dates', () => {
+    const all = texts(def).join(' ');
+    expect(all).not.toMatch(/Comment/i);
+    expect(all).not.toMatch(/Averages per parameter/i);
+    expect(all).not.toMatch(/Individual feedback/i);
+    expect(all).not.toMatch(/Submitted/i);
+  });
+
+  test('is portrait — three columns on a landscape sheet read as unfinished', () => {
+    expect(def.pageOrientation).toBe('portrait');
+    expect(def.pageSize).toBe('A4');
+  });
+
+  test('a mentor with no rating shows a dash, not 0.00', () => {
+    // 0.00 is a real score a mentor could receive; "no data" must not wear it.
+    const d = buildPdfDocDefinition(summaryReport([mentorRow('B', 'M', null)]));
+    expect(cell(tables(d)[0].body[1][2])).toBe('—');
+  });
+
+  test('an empty selection says so instead of printing a headerless table', () => {
+    const d = buildPdfDocDefinition(summaryReport([]));
+    expect(tables(d)).toHaveLength(0);
+    expect(texts(d).join(' ')).toMatch(/No feedback has been submitted/i);
+  });
+
+  test('the header carries the totals and the active filters', () => {
+    const head = JSON.stringify(def.header());
+    expect(head).toContain('128 responses');
+    expect(head).toContain('4.17 / 5');
+    expect(head).toContain('All data');
+  });
+
+  describe('alignment', () => {
+    test('the table fits the printable width of A4 portrait', () => {
+      const { widths, padding, borders } = summaryColumnWidths();
+      const total = widths.reduce((a, b) => a + b, 0) + padding + borders;
+      expect(total).toBeLessThanOrEqual(PAGE_PORTRAIT.printable);
+    });
+
+    test('keeps a safety margin rather than landing exactly on the edge', () => {
+      const { widths, padding, borders } = summaryColumnWidths();
+      const total = widths.reduce((a, b) => a + b, 0) + padding + borders;
+      expect(PAGE_PORTRAIT.printable - total).toBeGreaterThanOrEqual(4);
+    });
+
+    test('every column has a real, legible width — no "auto"', () => {
+      for (const w of summaryColumnWidths().widths) {
+        expect(typeof w).toBe('number');
+        expect(w).toBeGreaterThanOrEqual(70);
+      }
+    });
+
+    test('nothing is DRAWN past the page edge in the rendered bytes', async () => {
+      /* The one test that reads the rendered PDF rather than the definition,
+         and it earns it: pdfmake draws straight past the sheet without error,
+         so the only proof that a column fits is where the ink lands. Long
+         names on purpose — the widths have to survive real data. */
+      const long = Array.from({ length: 40 }, (_, i) =>
+        mentorRow(
+          'Advanced Placement Readiness 2026 · Batch-3',
+          i % 2 ? 'Harshavardhini' : 'Kiran Immandi',
+          3 + (i % 20) / 10
+        )
+      );
+      const buf = await buildPdf(summaryReport(long));
+      const rightMost = rightMostMark(buf);
+      /* Guard the guard. If the streams ever stop inflating — a pdfmake
+         upgrade, a different filter — rightMost is -Infinity and the fit
+         assertion below passes for a PDF nobody measured. Proving ink was
+         found near the right margin is what makes the next line mean
+         something. */
+      expect(rightMost).toBeGreaterThan(PAGE_PORTRAIT.printable / 2);
+      expect(rightMost).toBeLessThanOrEqual(PAGE_PORTRAIT.width);
+    });
+  });
+
+  test('the full report layout is untouched when no layout is set', () => {
+    // The class/batch/mentor exports still print everything.
+    const full = buildPdfDocDefinition(report([row('GenAI', 1, '2026-09-01T10:00:00Z')]));
+    expect(full.pageOrientation).toBe('landscape');
+    expect(tables(full).length).toBeGreaterThan(1);
+    expect(texts(full).join(' ')).toMatch(/Averages per parameter/);
   });
 });

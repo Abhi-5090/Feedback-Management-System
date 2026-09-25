@@ -1083,3 +1083,94 @@ export async function batchCollections({ batchId, scopeTrainerId, classId } = {}
     };
   });
 }
+
+/**
+ * One row per (batch, mentor): the batch's name, the mentor who taught it, and
+ * the average rating their sessions in that batch received.
+ *
+ * This is the whole content of the dashboard PDF. It is deliberately NOT built
+ * from `detailRows` — that returns one row per submission (tens of thousands of
+ * them for a full export), and collapsing them in JS would mean fetching every
+ * row to throw almost all of it away. Grouping in the database returns roughly
+ * one row per mentor per batch: a few dozen, for any size of dataset.
+ *
+ * A session is rated once and that rating belongs to the whole mentor team
+ * (see the attribution note on the Feedback model), so both rosters are folded
+ * together with $setUnion before unwinding — someone listed as both main and
+ * support on the same session must not be counted twice.
+ *
+ * @param {object} match         a feedback match built by buildFeedbackMatch
+ * @param {string} onlyMentorId  when the caller filtered to one mentor, keep
+ *                               only their rows — the match admits every
+ *                               response they were part of, which includes
+ *                               their team-mates' names.
+ */
+export async function mentorRatings(match, { onlyMentorId } = {}) {
+  const rows = await Feedback.aggregate([
+    { $match: match },
+    {
+      $addFields: {
+        mentors: {
+          $setUnion: [{ $ifNull: ['$mainTrainers', []] }, { $ifNull: ['$supportTrainers', []] }],
+        },
+      },
+    },
+    { $unwind: '$mentors' },
+    ...(onlyMentorId ? [{ $match: { mentors: oid(onlyMentorId) } }] : []),
+    { $unwind: '$ratings' },
+    {
+      $group: {
+        _id: { batch: '$batch', mentor: '$mentors' },
+        starSum: { $sum: '$ratings.stars' },
+        starCount: { $sum: 1 },
+        // Distinct submissions, not rating lines: one response carries one
+        // star per parameter, so starCount is a multiple of the real figure.
+        ids: { $addToSet: '$_id' },
+      },
+    },
+    { $lookup: { from: 'batches', localField: '_id.batch', foreignField: '_id', as: 'batchDoc' } },
+    { $lookup: { from: 'users', localField: '_id.mentor', foreignField: '_id', as: 'mentorDoc' } },
+    {
+      $project: {
+        _id: 0,
+        batchId: '$_id.batch',
+        mentorId: '$_id.mentor',
+        batchName: { $ifNull: [{ $first: '$batchDoc.name' }, 'Unknown batch'] },
+        yearGroup: { $ifNull: [{ $first: '$batchDoc.yearGroup' }, ''] },
+        mentorName: {
+          $let: {
+            vars: { m: { $first: '$mentorDoc' } },
+            // shortName is what the schedule calls people ("Prasanth K"); the
+            // full name is the fallback for staff imported without one.
+            in: {
+              $cond: [
+                { $gt: [{ $strLenCP: { $ifNull: ['$$m.shortName', ''] } }, 0] },
+                '$$m.shortName',
+                { $ifNull: ['$$m.name', 'Unknown mentor'] },
+              ],
+            },
+          },
+        },
+        responses: { $size: '$ids' },
+        average: { $divide: ['$starSum', '$starCount'] },
+      },
+    },
+  ]);
+
+  return rows
+    .map((r) => ({
+      ...r,
+      batchId: String(r.batchId),
+      mentorId: String(r.mentorId),
+      average: round(r.average, 2),
+    }))
+    /* Batch first so the sheet reads as one block per cohort, then by rating
+       descending — the order someone reviewing a batch actually wants, with
+       the sessions that need attention at the bottom of their group. */
+    .sort(
+      (a, b) =>
+        a.batchName.localeCompare(b.batchName) ||
+        b.average - a.average ||
+        a.mentorName.localeCompare(b.mentorName)
+    );
+}
