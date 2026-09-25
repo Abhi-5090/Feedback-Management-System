@@ -11,7 +11,7 @@ import {
   roleSplitStats,
   perParameterAverages,
   detailRows,
-  mentorRatings,
+  sessionRatings,
   staffs,
   shapeEntry,
 } from '../services/analyticsService.js';
@@ -268,7 +268,7 @@ export const exportAdminDashboard = asyncHandler(async (req, res) => {
       filterContext: ctxParts.length ? ctxParts.join(' · ') : 'All data',
       detail: !crisp,
     }),
-    mentorRatings(match, { onlyMentorId: trainerId }),
+    sessionRatings(match, { onlyMentorId: trainerId }),
   ]);
   report.mentorRows = mentorRows;
   if (crisp) report.layout = 'summary';

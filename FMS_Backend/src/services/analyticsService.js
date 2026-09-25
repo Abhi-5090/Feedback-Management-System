@@ -6,6 +6,17 @@ import { Parameter } from '../models/Parameter.js';
 
 const oid = (id) => new mongoose.Types.ObjectId(String(id));
 
+/* The label a mentor is known by on the training board. shortName is what the
+   schedule calls them ("Prasanth K"); the account's full name is the fallback
+   for staff imported without one. */
+const MENTOR_LABEL = {
+  $cond: [
+    { $gt: [{ $strLenCP: { $ifNull: ['$$m.shortName', ''] } }, 0] },
+    '$$m.shortName',
+    { $ifNull: ['$$m.name', 'Unknown mentor'] },
+  ],
+};
+
 /** Escape a user-supplied string so it is safe to embed in a RegExp. */
 export const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -1084,104 +1095,118 @@ export async function batchCollections({ batchId, scopeTrainerId, classId } = {}
   });
 }
 
+/* Academic order, not alphabetical. Sorting year groups as strings puts
+   "Final Year" first and "Third Year" last, which is exactly backwards for a
+   report someone reads top to bottom. Anything unrecognised sorts after the
+   known years rather than being dropped. */
+const YEAR_ORDER = ['First Year', 'Second Year', 'Third Year', 'Final Year'];
+export const yearRank = (y) => {
+  const i = YEAR_ORDER.indexOf(String(y || '').trim());
+  return i === -1 ? YEAR_ORDER.length : i;
+};
+
 /**
- * One row per (batch, subject, mentor): the batch, the subject taught, the
- * mentor who taught it, and the average rating that session received.
+ * One row per SESSION — a (batch, subject) pair — carrying the rating it
+ * received and the mentor team that delivered it, split into main and support.
  *
- * Granularity is the SESSION, not the batch. A cohort like "2nd Year Credit
- * Course" runs several subjects — Java and DS — and collapsing them to one row
- * per mentor hides which subject a score belongs to, which is the first thing
- * anyone reading the sheet wants to know.
+ * Granularity is the session rather than the mentor. A session is rated once
+ * and that rating belongs to the whole team (see the attribution note on the
+ * Feedback model), so giving each mentor their own row printed the same number
+ * three times under one subject and made a shared score look like a
+ * coincidence. One row naming the team states what actually happened.
  *
- * This is the whole content of the dashboard PDF. It is deliberately NOT built
- * from `detailRows` — that returns one row per submission (tens of thousands of
- * them for a full export), and collapsing them in JS would mean fetching every
- * row to throw almost all of it away. Grouping in the database returns roughly
- * one row per mentor per batch: a few dozen, for any size of dataset.
- *
- * A session is rated once and that rating belongs to the whole mentor team
- * (see the attribution note on the Feedback model), so both rosters are folded
- * together with $setUnion before unwinding — someone listed as both main and
- * support on the same session must not be counted twice.
+ * Both rosters are read from the Feedback documents, not from the Batch: they
+ * are copied at submission time precisely so that a later staffing change
+ * cannot rewrite who taught a session that has already been rated.
  *
  * @param {object} match         a feedback match built by buildFeedbackMatch
  * @param {string} onlyMentorId  when the caller filtered to one mentor, keep
- *                               only their rows — the match admits every
- *                               response they were part of, which includes
- *                               their team-mates' names.
+ *                               only the sessions they were part of.
  */
-export async function mentorRatings(match, { onlyMentorId } = {}) {
+export async function sessionRatings(match, { onlyMentorId } = {}) {
+  const mentorOid = onlyMentorId ? oid(onlyMentorId) : null;
+
   const rows = await Feedback.aggregate([
     { $match: match },
-    {
-      $addFields: {
-        mentors: {
-          $setUnion: [{ $ifNull: ['$mainTrainers', []] }, { $ifNull: ['$supportTrainers', []] }],
-        },
-      },
-    },
-    { $unwind: '$mentors' },
-    ...(onlyMentorId ? [{ $match: { mentors: oid(onlyMentorId) } }] : []),
+    ...(mentorOid
+      ? [{ $match: { $or: [{ mainTrainers: mentorOid }, { supportTrainers: mentorOid }] } }]
+      : []),
     { $unwind: '$ratings' },
     {
       $group: {
-        _id: { batch: '$batch', class: '$class', mentor: '$mentors' },
+        _id: { batch: '$batch', class: '$class' },
         starSum: { $sum: '$ratings.stars' },
         starCount: { $sum: 1 },
         // Distinct submissions, not rating lines: one response carries one
         // star per parameter, so starCount is a multiple of the real figure.
         ids: { $addToSet: '$_id' },
+        mains: { $push: '$mainTrainers' },
+        supports: { $push: '$supportTrainers' },
       },
+    },
+    {
+      /* Every response carries its own copy of the rosters, so these are arrays
+         of arrays — one per submission — flattened to the distinct set. */
+      $addFields: {
+        mainIds: {
+          $reduce: {
+            input: '$mains',
+            initialValue: [],
+            in: { $setUnion: ['$$value', { $ifNull: ['$$this', []] }] },
+          },
+        },
+        allSupportIds: {
+          $reduce: {
+            input: '$supports',
+            initialValue: [],
+            in: { $setUnion: ['$$value', { $ifNull: ['$$this', []] }] },
+          },
+        },
+      },
+    },
+    {
+      // Someone on both rosters is a main mentor; listing them again under
+      // support would print their name twice on one row.
+      $addFields: { supportIds: { $setDifference: ['$allSupportIds', '$mainIds'] } },
     },
     { $lookup: { from: 'batches', localField: '_id.batch', foreignField: '_id', as: 'batchDoc' } },
     { $lookup: { from: 'classes', localField: '_id.class', foreignField: '_id', as: 'classDoc' } },
-    { $lookup: { from: 'users', localField: '_id.mentor', foreignField: '_id', as: 'mentorDoc' } },
+    { $lookup: { from: 'users', localField: 'mainIds', foreignField: '_id', as: 'mainDocs' } },
+    { $lookup: { from: 'users', localField: 'supportIds', foreignField: '_id', as: 'supportDocs' } },
     {
       $project: {
         _id: 0,
         batchId: '$_id.batch',
         classId: '$_id.class',
-        mentorId: '$_id.mentor',
-        className: { $ifNull: [{ $first: '$classDoc.name' }, 'Unknown subject'] },
         batchName: { $ifNull: [{ $first: '$batchDoc.name' }, 'Unknown batch'] },
         yearGroup: { $ifNull: [{ $first: '$batchDoc.yearGroup' }, ''] },
-        mentorName: {
-          $let: {
-            vars: { m: { $first: '$mentorDoc' } },
-            // shortName is what the schedule calls people ("Prasanth K"); the
-            // full name is the fallback for staff imported without one.
-            in: {
-              $cond: [
-                { $gt: [{ $strLenCP: { $ifNull: ['$$m.shortName', ''] } }, 0] },
-                '$$m.shortName',
-                { $ifNull: ['$$m.name', 'Unknown mentor'] },
-              ],
-            },
-          },
-        },
+        className: { $ifNull: [{ $first: '$classDoc.name' }, 'Unknown subject'] },
+        mainMentors: { $map: { input: '$mainDocs', as: 'm', in: MENTOR_LABEL } },
+        supportMentors: { $map: { input: '$supportDocs', as: 'm', in: MENTOR_LABEL } },
         responses: { $size: '$ids' },
         average: { $divide: ['$starSum', '$starCount'] },
       },
     },
   ]);
 
+  const byName = (a, b) => a.localeCompare(b);
   return rows
     .map((r) => ({
       ...r,
       batchId: String(r.batchId),
       classId: String(r.classId),
-      mentorId: String(r.mentorId),
+      mainMentors: [...r.mainMentors].sort(byName),
+      supportMentors: [...r.supportMentors].sort(byName),
       average: round(r.average, 2),
     }))
-    /* Batch, then subject, so the sheet reads as one block per cohort and one
-       run per subject within it — which is what lets the printed table state
-       each name only once. Rating descending inside a subject puts whatever
-       needs attention at the bottom of its own group. */
+    /* Academic year first, then batch, then subject. The report is read as a
+       progression through the cohorts, and an alphabetical shuffle of years is
+       the first thing that makes it look machine-generated. */
     .sort(
       (a, b) =>
+        yearRank(a.yearGroup) - yearRank(b.yearGroup) ||
+        String(a.yearGroup).localeCompare(String(b.yearGroup)) ||
         a.batchName.localeCompare(b.batchName) ||
-        a.className.localeCompare(b.className) ||
-        b.average - a.average ||
-        a.mentorName.localeCompare(b.mentorName)
+        a.className.localeCompare(b.className)
     );
 }
