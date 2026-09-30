@@ -204,6 +204,193 @@ function IconAction({ icon, label, onClick, to, state, tone = 'plain', size = 15
   );
 }
 
+/**
+ * The batch form, shared by "New batch" and "Edit batch".
+ *
+ * Create and edit take the same fields, and when they were written twice they
+ * drifted: the create form gained the year-group datalist and the department
+ * hint, and an edit form written separately would have had to grow them again.
+ * One component means a field added here appears in both, correctly, or in
+ * neither.
+ *
+ * `lockedFields` is what makes it serve both. The server refuses to change a
+ * batch's classes or mentors while collection is OPEN — a student mid-form
+ * would be answering about a roster that no longer exists — so rather than let
+ * an admin fill the section in and meet a 400, the section renders read-only
+ * with the reason and the remedy on it.
+ */
+function BatchFormFields({
+  form,
+  setForm,
+  classes,
+  trainers,
+  yearGroups,
+  toggleClass,
+  setClassRoster,
+  ids,
+  rosterLocked = false,
+}) {
+  return (
+    <>
+      <div>
+        <label className="label" htmlFor={ids.classId}>
+          Classes <span className="font-normal text-subtle">(one or more)</span>
+        </label>
+
+        {rosterLocked && (
+          <div className="mb-2 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+            <Icon name="lock" size={14} className="mt-0.5 shrink-0 text-amber-600" />
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              <span className="font-semibold">Collection is open.</span> Classes and mentors are fixed
+              while students are answering — changing them now would leave submissions attributed to a
+              team that no longer exists. Lock the batch first to edit them. Everything below can still
+              be changed.
+            </p>
+          </div>
+        )}
+
+        {classes.length === 0 ? (
+          <p className="mt-1.5 text-xs text-rose-500">Create a class first.</p>
+        ) : (
+          <div
+            id={ids.classId}
+            className={`max-h-72 space-y-1 overflow-y-auto rounded-xl border border-line p-1.5 ${
+              rosterLocked ? 'opacity-60' : ''
+            }`}
+          >
+            {classes.map((c) => {
+              const entry = form.classes.find((e) => e.class === c._id);
+              const on = Boolean(entry);
+              // While open, show only what IS staffed — the full catalog of
+              // unselected subjects is noise when none of it can be chosen.
+              if (rosterLocked && !on) return null;
+              return (
+                <div key={c._id} className={`rounded-lg ${on ? 'bg-brand-500/10' : ''}`}>
+                  <button
+                    type="button"
+                    onClick={() => !rosterLocked && toggleClass(c)}
+                    aria-pressed={on}
+                    disabled={rosterLocked}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors duration-150 ${
+                      rosterLocked ? 'cursor-not-allowed' : on ? '' : 'hover:bg-surface-2'
+                    }`}
+                  >
+                    <span
+                      className={`grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors duration-150 ${
+                        on ? 'border-brand-500 bg-brand-500 text-white' : 'border-line'
+                      }`}
+                    >
+                      {on && <Icon name="check" size={11} />}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-semibold text-ink">{c.name}</span>
+                      {c.trainer?.name && <span className="text-subtle"> · default {c.trainer.name}</span>}
+                    </span>
+                  </button>
+                  {/* Per-batch mentor team for THIS class: who delivers it
+                      and who assists. Both are multi-select because the
+                      real schedule has co-taught sessions. */}
+                  {on && (
+                    <div className="px-2.5 pb-2.5 pl-9">
+                      {rosterLocked ? (
+                        <MentorRosterBadges
+                          mainTrainerNames={(entry.mainTrainers || []).map(
+                            (id) => trainers.find((t) => t._id === id)?.name || '—'
+                          )}
+                          supportTrainerNames={(entry.supportTrainers || []).map(
+                            (id) => trainers.find((t) => t._id === id)?.name || '—'
+                          )}
+                        />
+                      ) : (
+                        <MentorRosterPicker
+                          trainers={trainers}
+                          mainTrainers={entry.mainTrainers || []}
+                          supportTrainers={entry.supportTrainers || []}
+                          onChange={(rosters) => setClassRoster(c._id, rosters)}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="hint">
+          <span className="tnum font-semibold text-ink">{form.classes.length}</span> selected · students
+          rate every selected class. Each class carries its own main and support mentors for this batch.
+        </p>
+      </div>
+
+      <div>
+        <label className="label" htmlFor={ids.nameId}>Batch name</label>
+        <input
+          id={ids.nameId}
+          className="input"
+          required
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder="FSD-Aug-2025"
+        />
+        <p className="hint">The passcode is derived from this name (e.g. “FSD Aug 2025” → stem “FA2”).</p>
+      </div>
+
+      {/* Cohort placement. Free text with suggestions from the batches
+          that already exist, so an institution's own naming ("Final Year",
+          "III Year") is preserved rather than forced into an enum. */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="label" htmlFor={ids.yearGroupId}>
+            Year group <span className="font-normal text-subtle">(optional)</span>
+          </label>
+          <input
+            id={ids.yearGroupId}
+            className="input"
+            list={`${ids.yearGroupId}-options`}
+            value={form.yearGroup}
+            onChange={(e) => setForm({ ...form, yearGroup: e.target.value })}
+            placeholder="First Year"
+          />
+          <datalist id={`${ids.yearGroupId}-options`}>
+            {yearGroups.map((g) => (
+              <option key={g} value={g} />
+            ))}
+          </datalist>
+          <p className="hint">Groups the dashboard and cohort roll-up.</p>
+        </div>
+        <div>
+          <label className="label" htmlFor={ids.deptId}>
+            Department <span className="font-normal text-subtle">(optional)</span>
+          </label>
+          <input
+            id={ids.deptId}
+            className="input"
+            value={form.dept}
+            onChange={(e) => setForm({ ...form, dept: e.target.value })}
+            placeholder="CSE - A, B"
+          />
+          <p className="hint">Free text — sections included.</p>
+        </div>
+      </div>
+
+      <div>
+        <label className="label" htmlFor={ids.expectedId}>
+          Expected responses <span className="font-normal text-subtle">(class size)</span>
+        </label>
+        <input
+          id={ids.expectedId}
+          className="input tnum"
+          type="number"
+          min={0}
+          value={form.expectedCount}
+          onChange={(e) => setForm({ ...form, expectedCount: e.target.value })}
+        />
+        <p className="hint">Sets the target for the live counter. You can change it when you unlock.</p>
+      </div>
+    </>
+  );
+}
+
 export default function Batches() {
   const [query, setQuery] = useState('');
   const toast = useToast();
@@ -211,6 +398,7 @@ export default function Batches() {
   const [classes, setClasses] = useState([]);
   const [trainers, setTrainers] = useState([]);
   const [createModal, setCreateModal] = useState(false);
+  const [editModal, setEditModal] = useState(null); // the batch being edited
   /* classes: [{ class: id, mainTrainers: [id], supportTrainers: [id] }].
      Both rosters are per-batch: the same subject is staffed by different teams
      for different cohorts, so this is the real source of truth rather than the
@@ -233,6 +421,9 @@ export default function Batches() {
   const yearGroupId = useId();
   const deptId = useId();
   const unlockExpectedId = useId();
+  // Gathered so the shared form component can label its inputs without each
+  // caller threading five ids through by hand.
+  const fieldIds = { classId, nameId, expectedId, yearGroupId, deptId };
 
   const load = useCallback(async () => {
     try {
@@ -273,6 +464,27 @@ export default function Batches() {
   const openCreate = () => {
     setForm({ classes: [], name: '', yearGroup: '', dept: '', expectedCount: 30 });
     setCreateModal(true);
+  };
+
+  /* Seed the form from the batch as the API returns it. The wire shape is
+     `{ id, name, mainTrainerIds, supportTrainerIds }` per class, which is what
+     the table renders from; the form speaks `{ class, mainTrainers,
+     supportTrainers }`, which is what the server accepts on write. Mapping
+     here keeps that translation in one place instead of teaching the form to
+     read two shapes. */
+  const openEdit = (b) => {
+    setForm({
+      classes: (b.classes || []).map((c) => ({
+        class: c.id,
+        mainTrainers: [...(c.mainTrainerIds || [])],
+        supportTrainers: [...(c.supportTrainerIds || [])],
+      })),
+      name: b.name || '',
+      yearGroup: b.yearGroup || '',
+      dept: b.dept || '',
+      expectedCount: b.expectedCount ?? 0,
+    });
+    setEditModal(b);
   };
 
   /* Toggle a subject in/out of the batch. Adding it pre-fills the MAIN roster
@@ -323,6 +535,50 @@ export default function Batches() {
       });
       toast.success('Batch created'); setCreateModal(false); load();
     } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+  };
+
+  const save = async (e) => {
+    e.preventDefault();
+    const b = editModal;
+    const rosterLocked = b.status === 'open';
+
+    if (!rosterLocked) {
+      if (!form.classes.length) return toast.error('Select at least one class.');
+      const unstaffed = form.classes.find((c) => !c.mainTrainers?.length);
+      if (unstaffed) {
+        const name = classes.find((c) => c._id === unstaffed.class)?.name || 'A selected class';
+        return toast.error(`${name} needs at least one main mentor.`);
+      }
+    }
+    /* Never send a cap below what has already arrived. The server refuses it
+       too, but catching it here names the number the admin has to beat instead
+       of bouncing them off a 400. */
+    const cap = Number(form.expectedCount);
+    if (cap > 0 && cap < (b.submittedCount || 0)) {
+      return toast.error(
+        `This batch already has ${b.submittedCount} responses — the expected count cannot be lower.`
+      );
+    }
+
+    setBusy(true);
+    try {
+      await BatchesAPI.update(b._id, {
+        name: form.name,
+        yearGroup: form.yearGroup,
+        dept: form.dept,
+        expectedCount: cap,
+        // Omitted entirely while open — sending the unchanged array would
+        // still trip the server's BATCH_OPEN guard.
+        ...(rosterLocked ? {} : { classes: form.classes }),
+      });
+      toast.success('Batch updated');
+      setEditModal(null);
+      load();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const doUnlock = async (e) => {
@@ -607,6 +863,16 @@ export default function Batches() {
                           )}
 
                           <IconAction
+                            icon="pencil"
+                            label={
+                              isOpen
+                                ? 'Edit this batch (lock it to change classes or mentors)'
+                                : 'Edit this batch, its classes and mentors'
+                            }
+                            onClick={() => openEdit(b)}
+                          />
+
+                          <IconAction
                             icon="barChart"
                             label="View feedback"
                             to={`/admin/batch/${b._id}`}
@@ -644,129 +910,52 @@ export default function Batches() {
         description="A batch is a cohort that can span several classes. Students rate every class in it. It starts locked — unlock it when you're ready to collect."
       >
         <form onSubmit={create} className="space-y-4">
-          <div>
-            <label className="label" htmlFor={classId}>
-              Classes <span className="font-normal text-subtle">(one or more)</span>
-            </label>
-            {classes.length === 0 ? (
-              <p className="mt-1.5 text-xs text-rose-500">Create a class first.</p>
-            ) : (
-              <div
-                id={classId}
-                className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-line p-1.5"
-              >
-                {classes.map((c) => {
-                  const entry = form.classes.find((e) => e.class === c._id);
-                  const on = Boolean(entry);
-                  return (
-                    <div key={c._id} className={`rounded-lg ${on ? 'bg-brand-500/10' : ''}`}>
-                      <button
-                        type="button"
-                        onClick={() => toggleClass(c)}
-                        aria-pressed={on}
-                        className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors duration-150 ${
-                          on ? '' : 'hover:bg-surface-2'
-                        }`}
-                      >
-                        <span
-                          className={`grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors duration-150 ${
-                            on ? 'border-brand-500 bg-brand-500 text-white' : 'border-line'
-                          }`}
-                        >
-                          {on && <Icon name="check" size={11} />}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">
-                          <span className="font-semibold text-ink">{c.name}</span>
-                          {c.trainer?.name && <span className="text-subtle"> · default {c.trainer.name}</span>}
-                        </span>
-                      </button>
-                      {/* Per-batch mentor team for THIS class: who delivers it
-                          and who assists. Both are multi-select because the
-                          real schedule has co-taught sessions. */}
-                      {on && (
-                        <div className="px-2.5 pb-2.5 pl-9">
-                          <MentorRosterPicker
-                            trainers={trainers}
-                            mainTrainers={entry.mainTrainers || []}
-                            supportTrainers={entry.supportTrainers || []}
-                            onChange={(rosters) => setClassRoster(c._id, rosters)}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <p className="hint">
-              <span className="tnum font-semibold text-ink">{form.classes.length}</span> selected · students
-              rate every selected class. Each class carries its own main and support mentors for this batch.
-            </p>
-          </div>
-          <div>
-            <label className="label" htmlFor={nameId}>Batch name</label>
-            <input
-              id={nameId}
-              className="input"
-              required
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="FSD-Aug-2025"
-            />
-            <p className="hint">The passcode is derived from this name (e.g. “FSD Aug 2025” → stem “FA2”).</p>
-          </div>
-          {/* Cohort placement. Free text with suggestions from the batches
-              that already exist, so an institution's own naming ("Final Year",
-              "III Year") is preserved rather than forced into an enum. */}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="label" htmlFor={yearGroupId}>
-                Year group <span className="font-normal text-subtle">(optional)</span>
-              </label>
-              <input
-                id={yearGroupId}
-                className="input"
-                list={`${yearGroupId}-options`}
-                value={form.yearGroup}
-                onChange={(e) => setForm({ ...form, yearGroup: e.target.value })}
-                placeholder="First Year"
-              />
-              <datalist id={`${yearGroupId}-options`}>
-                {yearGroups.map((g) => (
-                  <option key={g} value={g} />
-                ))}
-              </datalist>
-              <p className="hint">Groups the dashboard and cohort roll-up.</p>
-            </div>
-            <div>
-              <label className="label" htmlFor={deptId}>
-                Department <span className="font-normal text-subtle">(optional)</span>
-              </label>
-              <input
-                id={deptId}
-                className="input"
-                value={form.dept}
-                onChange={(e) => setForm({ ...form, dept: e.target.value })}
-                placeholder="CSE - A, B"
-              />
-              <p className="hint">Free text — sections included.</p>
-            </div>
-          </div>
-          <div>
-            <label className="label" htmlFor={expectedId}>Expected responses <span className="font-normal text-subtle">(class size)</span></label>
-            <input
-              id={expectedId}
-              className="input tnum"
-              type="number"
-              min={0}
-              value={form.expectedCount}
-              onChange={(e) => setForm({ ...form, expectedCount: e.target.value })}
-            />
-            <p className="hint">Sets the target for the live counter. You can change it when you unlock.</p>
-          </div>
+          <BatchFormFields
+            form={form}
+            setForm={setForm}
+            classes={classes}
+            trainers={trainers}
+            yearGroups={yearGroups}
+            toggleClass={toggleClass}
+            setClassRoster={setClassRoster}
+            ids={fieldIds}
+          />
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" className="btn-ghost" onClick={() => setCreateModal(false)}>Cancel</button>
             <button type="submit" className="btn-primary" disabled={busy}>{busy ? 'Creating…' : 'Create'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit batch — the same fields as create, with the roster section held
+          read-only while collection is open. */}
+      <Modal
+        open={!!editModal}
+        onClose={() => setEditModal(null)}
+        title={`Edit “${editModal?.name}”`}
+        description={
+          editModal?.status === 'open'
+            ? 'Collection is open. Name, year group, department and the expected count can be changed now; classes and mentors need the batch locked first.'
+            : 'Change anything about this batch — its classes, the mentor team on each one, or where it sits in the cohort.'
+        }
+      >
+        <form onSubmit={save} className="space-y-4">
+          <BatchFormFields
+            form={form}
+            setForm={setForm}
+            classes={classes}
+            trainers={trainers}
+            yearGroups={yearGroups}
+            toggleClass={toggleClass}
+            setClassRoster={setClassRoster}
+            ids={fieldIds}
+            rosterLocked={editModal?.status === 'open'}
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" className="btn-ghost" onClick={() => setEditModal(null)}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy}>
+              {busy ? 'Saving…' : 'Save changes'}
+            </button>
           </div>
         </form>
       </Modal>

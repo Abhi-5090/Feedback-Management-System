@@ -92,7 +92,7 @@ export default function Trainers() {
   const toast = useToast();
   const [trainers, setTrainers] = useState(null);
   const [modal, setModal] = useState(null); // null | 'create' | trainerObj
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', shortName: '', phone: '' });
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -106,8 +106,20 @@ export default function Trainers() {
   };
   useEffect(() => { load(); }, []); // eslint-disable-line
 
-  const openCreate = () => { setForm({ name: '', email: '', password: '' }); setModal('create'); };
-  const openEdit = (t) => { setForm({ name: t.name, email: t.email, password: '' }); setModal(t); };
+  const openCreate = () => {
+    setForm({ name: '', email: '', password: '', shortName: '', phone: '' });
+    setModal('create');
+  };
+  const openEdit = (t) => {
+    setForm({
+      name: t.name,
+      email: t.email,
+      password: '',
+      shortName: t.shortName || '',
+      phone: t.phone || '',
+    });
+    setModal(t);
+  };
 
   const save = async (e) => {
     e.preventDefault();
@@ -117,7 +129,12 @@ export default function Trainers() {
         await TrainersAPI.create(form);
         toast.success('Trainer created');
       } else {
-        const patch = { name: form.name, email: form.email };
+        const patch = {
+          name: form.name,
+          email: form.email,
+          shortName: form.shortName,
+          phone: form.phone,
+        };
         if (form.password) patch.password = form.password;
         await TrainersAPI.update(modal._id, patch);
         toast.success('Trainer updated');
@@ -431,6 +448,37 @@ export default function Trainers() {
               placeholder="jane@example.com"
             />
             <p className="hint">Used as their sign-in ID — it must be unique.</p>
+          </div>
+          {/* The board label. This — not the account's full name — is what the
+              timetable calls them and what every export prints, so it has to be
+              editable here; otherwise a mentor whose board name changes can only
+              be corrected by editing the roster file and re-importing. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="label" htmlFor="trainer-shortname">
+                Short name <span className="font-normal text-subtle">(optional)</span>
+              </label>
+              <input
+                id="trainer-shortname"
+                className="input"
+                value={form.shortName}
+                onChange={(e) => setForm({ ...form, shortName: e.target.value })}
+                placeholder="Prasanth K"
+              />
+              <p className="hint">The name shown on the schedule and in every export.</p>
+            </div>
+            <div>
+              <label className="label" htmlFor="trainer-phone">
+                Phone <span className="font-normal text-subtle">(optional)</span>
+              </label>
+              <input
+                id="trainer-phone"
+                className="input"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="+91 …"
+              />
+            </div>
           </div>
           <div>
             <label className="label" htmlFor="trainer-password">
