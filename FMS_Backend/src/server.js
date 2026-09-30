@@ -1,6 +1,7 @@
 import { createApp } from './app.js';
 import { connectDB, disconnectDB } from './config/db.js';
 import { startDigestScheduler, stopDigestScheduler } from './services/digestService.js';
+import { startKeepAlive, stopKeepAlive } from './services/keepAlive.js';
 import { warnIfMailUnconfigured } from './services/emailService.js';
 import { env } from './config/env.js';
 
@@ -16,6 +17,8 @@ async function start() {
     startDigestScheduler();
     // Once per deployment, not once per worker.
     warnIfMailUnconfigured();
+    // Same reasoning: one pinger, not one per worker.
+    startKeepAlive();
   }
   const app = createApp();
 
@@ -50,6 +53,7 @@ async function start() {
     console.log(`[api] ${signal} received — draining connections…`);
 
     stopDigestScheduler();
+    stopKeepAlive();
 
     // Stop accepting new connections, then wait for the open ones.
     const closed = new Promise((resolve) => server.close(resolve));

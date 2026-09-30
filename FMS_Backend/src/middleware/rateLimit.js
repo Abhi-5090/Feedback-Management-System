@@ -158,6 +158,15 @@ export const loginLimiter = [
     store: new ClusterMemoryStore('login-identity'),
     windowMs: 15 * 60 * 1000,
     max: isTest ? 1_000_000 : env.loginMaxPerIdentity,
+    /* SUCCESSFUL sign-ins do not count against the budget.
+       This limiter exists to slow credential stuffing against one account, and
+       an attacker guessing passwords produces failures — a person who types
+       their own password correctly is not the thing it is defending against.
+       Counting successes meant 20 ordinary sign-ins in 15 minutes locked the
+       account out, which is what an admin testing a deployment looks like, and
+       it was reported as "I always get 429". The per-IP limiter below still
+       counts every request, so a flood from one source is capped either way. */
+    skipSuccessfulRequests: true,
     keyGenerator: (req) => {
       const email = String(req.body?.email || '').toLowerCase().trim();
       return email ? `id:${email}` : `ip:${ipKey(req.ip)}`;

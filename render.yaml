@@ -122,6 +122,24 @@ services:
       - key: DIGESTS_ENABLED
         value: "true"
 
+      # ── Keep-alive ────────────────────────────────────────────────────────
+      # Set KEEP_ALIVE_URL to this service's own public /api/health and the
+      # process pings itself on an interval, so the free instance never goes
+      # 15 minutes without inbound traffic and never pays the ~35s cold start.
+      #
+      # It must be the PUBLIC url. Render counts inbound traffic, so a request
+      # to 127.0.0.1 never leaves the container and does not reset the idle
+      # timer. Leave it unset to disable — which is also what local runs and CI
+      # do, so nothing pings anything unless a deployment asks for it.
+      #
+      # This can only PREVENT a sleep, never end one: an instance that is
+      # already down cannot ping itself awake. .github/workflows/keepalive.yml
+      # is the external half that can.
+      - key: KEEP_ALIVE_URL
+        value: "https://fms-api-dzuv.onrender.com/api/health"
+      - key: KEEP_ALIVE_MINUTES
+        value: "3"
+
 # ── A note on the free plan ──────────────────────────────────────────────────
 # Render's free web services sleep after ~15 minutes of inactivity and take
 # roughly 50 seconds to wake. For a feedback session that is the difference

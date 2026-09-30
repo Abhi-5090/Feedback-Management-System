@@ -117,6 +117,11 @@ export const env = {
   // Login is keyed on email+IP so one person fat-fingering their password
   // cannot lock out everyone else sharing the network.
   loginMaxPerIdentity: parseInt(process.env.LOGIN_MAX_PER_IDENTITY || '20', 10),
+
+  /* Keep-alive for a free Render instance. Opt-in: unset locally and in CI, so
+     nothing reaches out to the network unless a deployment asks it to. */
+  keepAliveUrl: process.env.KEEP_ALIVE_URL || '',
+  keepAliveMinutes: parseInt(process.env.KEEP_ALIVE_MINUTES || '3', 10),
   loginIpMax: parseInt(process.env.LOGIN_IP_MAX || '300', 10),
 
   // Product name used in email subjects/branding.

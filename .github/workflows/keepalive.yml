@@ -1,0 +1,52 @@
+# ── Keep the free Render instance awake ──────────────────────────────────────
+#
+# The in-app pinger (FMS_Backend/src/services/keepAlive.js) runs every 3 minutes
+# and is the primary defence. It has one blind spot it cannot cover: a process
+# that is already asleep cannot ping itself awake. After a deploy, a crash, or
+# any gap the in-app timer missed, only an EXTERNAL request brings the instance
+# back — which is what this workflow is for.
+#
+# GitHub's scheduler is best-effort and commonly runs several minutes late, so
+# this is not the every-3-minutes cadence; it is the safety net underneath it.
+name: Keep API awake
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+# A late-firing schedule can overlap with the previous run. Waking an already
+# awake service twice is harmless but pointless.
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /api/health
+        env:
+          # Set this as a repository VARIABLE (Settings → Secrets and variables
+          # → Actions → Variables), not a secret: it is a public URL, and a
+          # secret would be masked in the logs where you want to read it.
+          API_URL: ${{ vars.API_URL || 'https://fms-api-dzuv.onrender.com' }}
+        run: |
+          set -uo pipefail
+          # A cold start on the free plan takes ~35s, so the timeout has to be
+          # generous or this workflow reports a failure for the exact case it
+          # exists to handle.
+          for attempt in 1 2 3; do
+            start=$(date +%s)
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 "$API_URL/api/health" || echo 000)
+            took=$(( $(date +%s) - start ))
+            if [ "$code" = "200" ]; then
+              echo "awake — HTTP $code in ${took}s (attempt $attempt)"
+              exit 0
+            fi
+            echo "attempt $attempt: HTTP $code after ${took}s"
+            sleep 10
+          done
+          echo "::warning::API did not answer 200 after 3 attempts — it may be down rather than asleep"
+          exit 1
