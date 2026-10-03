@@ -76,6 +76,7 @@ async function resolveMatch(req, { scopeTrainerId, classId, batchId } = {}) {
     classId: classId ?? q.classId,
     batchId: batchId ?? q.batchId,
     trainerId: q.trainerId,
+    phase: q.phase,
     round,
     from: q.from,
     to: q.to,
@@ -299,6 +300,7 @@ export const classAnalytics = asyncHandler(async (req, res) => {
     match: buildFeedbackMatch({
       scopeTrainerId,
       role: resolveRole(req),
+      phase: req.query.phase,
       from: req.query.from,
       to: req.query.to,
     }),

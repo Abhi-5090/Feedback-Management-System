@@ -15,6 +15,8 @@ import {
   batchUnlockSchema,
   listQuerySchema,
   auditQuerySchema,
+  phaseCreateSchema,
+  phaseUpdateSchema,
 } from '../utils/schemas.js';
 import {
   createTrainer,
@@ -44,6 +46,10 @@ import {
   archiveBatch,
   batchRounds,
 } from '../controllers/batchController.js';
+
+import {
+  listPhases, currentPhase, getPhase, createPhase, updatePhase, closePhase, deletePhase,
+} from '../controllers/phaseController.js';
 
 const router = Router();
 
@@ -93,6 +99,17 @@ router.get('/batches/:id/rounds', admin, batchRounds);
 router.patch('/batches/:id/archive', admin, archiveBatch);
 
 // Audit trail (admin only) — who did what, when.
+/* ── Phases ───────────────────────────────────────────────────────────────
+   The collection exercise a response belongs to. `/current` sits before
+   `/:id` or Express matches "current" as an id. */
+router.get('/phases/current', admin, currentPhase);
+router.get('/phases', admin, listPhases);
+router.post('/phases', admin, validate(phaseCreateSchema), createPhase);
+router.get('/phases/:id', admin, getPhase);
+router.patch('/phases/:id', admin, validate(phaseUpdateSchema), updatePhase);
+router.post('/phases/:id/close', admin, closePhase);
+router.delete('/phases/:id', admin, deletePhase);
+
 router.get('/audit', admin, validate(auditQuerySchema, 'query'), listAudit);
 router.get('/audit/actions', admin, auditActions);
 

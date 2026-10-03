@@ -69,6 +69,20 @@ export const BatchesAPI = {
   archive: (id, archived) => api.patch(`/batches/${id}/archive`, { archived }).then((r) => r.data),
 };
 
+export const PhasesAPI = {
+  /* A phase is one collection exercise. `unassigned` in a filter means
+     feedback that belongs to none — a real thing to look at, not an absence. */
+  list: () => api.get('/phases').then((r) => r.data),
+  current: () => api.get('/phases/current').then((r) => r.data.phase),
+  get: (id) => api.get(`/phases/${id}`).then((r) => r.data.phase),
+  create: (body) => api.post('/phases', body).then((r) => r.data),
+  update: (id, body) => api.patch(`/phases/${id}`, body).then((r) => r.data),
+  // Closing freezes the phase AND locks any batch still collecting, so it is
+  // its own endpoint rather than a status patch.
+  close: (id) => api.post(`/phases/${id}/close`).then((r) => r.data),
+  remove: (id) => api.delete(`/phases/${id}`).then((r) => r.data),
+};
+
 export const AuditAPI = {
   list: (params = {}) => api.get('/audit', { params }).then((r) => r.data),
   actionLabels: () => api.get('/audit/actions').then((r) => r.data.labels),

@@ -18,6 +18,7 @@ import { DEVICE_COOKIE, deviceCookieOptions } from '../utils/token.js';
 import { supportsTransactions } from '../config/db.js';
 import { env } from '../config/env.js';
 import { getActiveParameters } from '../services/parameterCache.js';
+import { phaseForSubmission } from '../services/phaseService.js';
 
 const SESSION_PURPOSE = 'feedback-session';
 
@@ -276,6 +277,15 @@ export const submitFeedback = asyncHandler(async (req, res) => {
   }
 
   // ── (7) Atomic write: DeviceLock + counter (+1 student) + N Feedback ─────
+  /* The collection exercise this submission belongs to, resolved ONCE for the
+     whole submission so every class block in it lands in the same phase — a
+     student answering across midnight on a phase boundary must not have half
+     their response in one exercise and half in the next.
+
+     Resolved here rather than read off the batch: the phase is a property of
+     WHEN the student answered, which is what the report means by it. */
+  const phaseId = await phaseForSubmission(new Date());
+
   const feedbackDocs = classBlocks.map((block) => {
     const staff = staffByClass.get(String(block.classId));
     return {
@@ -288,6 +298,7 @@ export const submitFeedback = asyncHandler(async (req, res) => {
       mainTrainers: staff.mainTrainers,
       supportTrainers: staff.supportTrainers,
       round: batch.round || 0,
+      phase: phaseId,
       ratings: block.ratings.map((r) => ({ parameter: r.parameter, stars: r.stars })),
       comment: block.comment.trim(),
     };

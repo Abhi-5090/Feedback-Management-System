@@ -247,6 +247,9 @@ export const listQuerySchema = z.object({
   yearGroup: z.string().max(80).optional(),
   class: objectId.optional(),
   trainer: objectId.optional(),
+  /* A phase id, or the literal 'unassigned' for feedback that belongs to no
+     exercise — a real thing to look at, not an absence to hide. */
+  phase: z.union([objectId, z.literal('unassigned')]).optional(),
 });
 
 /**
@@ -263,3 +266,32 @@ export const auditQuerySchema = z.object({
   from: z.string().datetime({ offset: true }).or(z.string().date()).optional(),
   to: z.string().datetime({ offset: true }).or(z.string().date()).optional(),
 });
+
+/* ── Phases ───────────────────────────────────────────────────────────────
+   A phase owns an explicit window rather than a month, because a collection
+   exercise spans whatever it spans — the September run took 21 days and
+   finished on the last day of the month. See models/Phase.js. */
+const isoDate = z.union([z.string().datetime({ offset: true }), z.string().date()]);
+
+export const phaseCreateSchema = z.object({
+  name: z.string().min(1).max(120),
+  // Short, for export columns and chips where the full name will not fit.
+  code: z.string().min(1).max(12).regex(/^[A-Za-z0-9-]+$/, 'Letters, numbers and hyphens only'),
+  startsAt: isoDate,
+  endsAt: isoDate,
+  notes: z.string().max(2000).optional().default(''),
+  // 'closed' is not creatable: closing is an action with side effects
+  // (it locks the open batches), so it goes through its own endpoint.
+  status: z.enum(['draft', 'open']).optional().default('draft'),
+});
+
+export const phaseUpdateSchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    code: z.string().min(1).max(12).regex(/^[A-Za-z0-9-]+$/).optional(),
+    startsAt: isoDate.optional(),
+    endsAt: isoDate.optional(),
+    notes: z.string().max(2000).optional(),
+    status: z.enum(['draft', 'open']).optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'No fields to update' });

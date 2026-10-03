@@ -28,6 +28,7 @@ const Trainers = lazy(() => import('./pages/admin/Trainers.jsx'));
 const Classes = lazy(() => import('./pages/admin/Classes.jsx'));
 const Parameters = lazy(() => import('./pages/admin/Parameters.jsx'));
 const Batches = lazy(() => import('./pages/admin/Batches.jsx'));
+const Phases = lazy(() => import('./pages/admin/Phases.jsx'));
 const AdminClassFeedback = lazy(() => import('./pages/admin/ClassFeedback.jsx'));
 const AdminBatchFeedback = lazy(() => import('./pages/admin/BatchFeedback.jsx'));
 
@@ -79,6 +80,7 @@ export default function App() {
           <Route path="classes" element={<Classes />} />
           <Route path="parameters" element={<Parameters />} />
           <Route path="batches" element={<Batches />} />
+          <Route path="phases" element={<Phases />} />
           <Route path="class/:classId" element={<AdminClassFeedback />} />
           <Route path="batch/:batchId" element={<AdminBatchFeedback />} />
           <Route path="guide" element={<Guide />} />

@@ -59,6 +59,12 @@ const P = {
       <circle cx="16" cy="18" r="2" />
     </>
   ),
+  calendar: (
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </>
+  ),
   ticket: (
     <>
       <path d="M4 8.5V6.5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2a2.5 2.5 0 0 0 0 5v2.5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V13.5a2.5 2.5 0 0 0 0-5z" />

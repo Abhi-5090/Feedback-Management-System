@@ -3,6 +3,7 @@ import { Feedback } from '../models/Feedback.js';
 import { Class } from '../models/Class.js';
 import { Batch } from '../models/Batch.js';
 import { Parameter } from '../models/Parameter.js';
+import { badRequest } from '../utils/ApiError.js';
 
 const oid = (id) => new mongoose.Types.ObjectId(String(id));
 
@@ -90,6 +91,7 @@ export function buildFeedbackMatch({
   trainerId,
   role,
   round,
+  phase,
   from,
   to,
   comment,
@@ -107,6 +109,22 @@ export function buildFeedbackMatch({
   if (classId) and.push({ class: oid(classId) });
   if (batchId) and.push({ batch: oid(batchId) });
   if (Number.isInteger(round)) and.push({ round });
+
+  /* Phase is an indexed equality on a STAMPED field, not a date range — see
+     the note on Feedback.phase. 'unassigned' is a first-class choice rather
+     than an absence: feedback belonging to no exercise is exactly what an
+     admin needs to be able to look at. */
+  if (phase === 'unassigned') and.push({ phase: null });
+  else if (phase) {
+    /* An unparseable id must be a 400, not a 500 and emphatically not an
+       ignored filter. Silently dropping it would return the WHOLE dataset
+       under a phase heading — a report that says "Phase 2" and shows every
+       phase, which nobody would catch by looking. */
+    if (!mongoose.Types.ObjectId.isValid(String(phase))) {
+      throw badRequest(`"${phase}" is not a valid phase`, 'BAD_PHASE');
+    }
+    and.push({ phase: oid(phase) });
+  }
 
   if (from || to) {
     const range = {};

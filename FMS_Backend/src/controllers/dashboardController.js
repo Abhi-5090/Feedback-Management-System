@@ -19,13 +19,14 @@ import {
 
 /** Shared filter resolution for both dashboards. */
 async function dashboardMatch(req, scopeTrainerId) {
-  const { class: classId, batch: batchId, trainer: trainerId, yearGroup, dept, from, to } = req.query;
+  const { class: classId, batch: batchId, trainer: trainerId, yearGroup, dept, phase, from, to } = req.query;
   const role = ['main', 'support'].includes(req.query.role) ? req.query.role : undefined;
 
   const base = buildFeedbackMatch({
     scopeTrainerId,
     classId,
     batchId,
+    phase,
     trainerId,
     role,
     from,

@@ -234,12 +234,12 @@ export const exportTrainerMe = asyncHandler(async (req, res) => {
 // GET /api/export/dashboard/admin?format=xlsx|pdf  — honors the same filters
 export const exportAdminDashboard = asyncHandler(async (req, res) => {
   const format = parseFormat(req);
-  const { class: classId, batch: batchId, trainer: trainerId, yearGroup, dept } = req.query;
+  const { class: classId, batch: batchId, trainer: trainerId, yearGroup, dept, phase } = req.query;
   const role = roleFilter(req);
 
   const match = await withCohort(
     req,
-    buildFeedbackMatch({ classId, batchId, trainerId, role, from: req.query.from, to: req.query.to })
+    buildFeedbackMatch({ classId, batchId, trainerId, role, phase, from: req.query.from, to: req.query.to })
   );
 
   const ctxParts = [];

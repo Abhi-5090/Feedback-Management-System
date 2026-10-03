@@ -57,6 +57,28 @@ const feedbackSchema = new mongoose.Schema(
       index: true,
     },
 
+    /* The collection exercise this response belongs to, STAMPED at submit
+       time rather than derived at report time.
+
+       Same reasoning as the mentor rosters above. A phase's window can be
+       edited while it is open — an admin extending it because collection ran
+       long is the normal case — and if reports derived membership by
+       re-checking the date against the current window, a boundary edit would
+       silently move responses between phases and change a report that had
+       already been circulated. Stamped, a response's phase is a fact about
+       what happened, not a recomputation. It is also an indexed equality
+       lookup instead of a range scan over a table that only grows.
+
+       Null means the response fell outside every phase. That is shown as
+       "Unassigned" rather than hidden, because feedback nobody can account
+       for is exactly what an admin needs to see. */
+    phase: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Phase',
+      default: null,
+      index: true,
+    },
+
     // Which round of collection this belongs to (Batch.round at submit time),
     // so re-running a batch produces comparable, separable cohorts.
     round: { type: Number, default: 0, min: 0 },
@@ -79,6 +101,10 @@ const feedbackSchema = new mongoose.Schema(
    must not do. */
 feedbackSchema.index({ createdAt: -1 });
 feedbackSchema.index({ batch: 1, createdAt: -1 });
+/* Every phase-scoped query is "this phase, then ordered by time" — without the
+   createdAt half each one sorts in memory after scanning the whole phase. */
+feedbackSchema.index({ phase: 1, createdAt: -1 });
+feedbackSchema.index({ phase: 1, batch: 1 });
 feedbackSchema.index({ class: 1, createdAt: -1 });
 feedbackSchema.index({ mainTrainers: 1, createdAt: -1 });
 feedbackSchema.index({ supportTrainers: 1, createdAt: -1 });

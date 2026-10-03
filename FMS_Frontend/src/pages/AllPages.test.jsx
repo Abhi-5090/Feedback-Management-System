@@ -80,6 +80,21 @@ vi.mock('../api/endpoints.js', () => {
       create: ok({}), update: ok({}), unlock: ok({ passcode: 'X', batch: {} }), lock: ok({}),
       rotatePasscode: ok({ passcode: 'X' }), archive: ok({}),
     },
+    PhasesAPI: {
+      list: ok({
+        phases: [{
+          _id: 'ph1', name: 'Phase 1 — September 2026', code: 'P1',
+          startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-10-01T00:00:00.000Z',
+          status: 'closed', notes: '', closedAt: new Date().toISOString(),
+          overdue: false, collecting: false,
+          responses: 1259, batches: 14, average: 4.3,
+          firstAt: '2026-09-09T00:00:00.000Z', lastAt: '2026-09-30T00:00:00.000Z',
+        }],
+        unassigned: { responses: 0, firstAt: null, lastAt: null },
+      }),
+      current: ok(null), get: ok({}), create: ok({ phase: {}, claimed: 0 }),
+      update: ok({ phase: {} }), close: ok({ phase: {}, batchesLocked: 0 }), remove: ok({ ok: true }),
+    },
     AuditAPI: { list: ok({ entries: [], page: 1, pages: 1, total: 0, filters: { actions: [], actors: [] } }) },
     ClassesArchiveAPI: { archive: ok({}) },
     AnalyticsAPI: {
@@ -190,6 +205,7 @@ const PAGES = [
   ['admin/Classes', () => import('./admin/Classes.jsx')],
   ['admin/Parameters', () => import('./admin/Parameters.jsx')],
   ['admin/Batches', () => import('./admin/Batches.jsx')],
+  ['admin/Phases', () => import('./admin/Phases.jsx')],
   ['admin/Audit', () => import('./admin/Audit.jsx')],
   ['admin/TrainerComparison', () => import('./admin/TrainerComparison.jsx')],
   ['admin/Cohorts', () => import('./admin/Cohorts.jsx')],

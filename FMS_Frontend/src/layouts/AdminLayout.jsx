@@ -10,6 +10,9 @@ const nav = [
   { to: '/admin/classes', label: 'Classes', icon: 'book' },
   { to: '/admin/parameters', label: 'Parameters', icon: 'sliders' },
   { to: '/admin/batches', label: 'Batches', icon: 'ticket' },
+  /* Directly under Batches: a phase is the exercise a set of batch unlocks
+     belongs to, so the two are read together. */
+  { to: '/admin/phases', label: 'Phases', icon: 'calendar' },
   { to: '/admin/audit', label: 'Audit trail', icon: 'shield' },
   { to: '/admin/guide', label: 'How it works', icon: 'compass' },
   { to: '/admin/settings', label: 'Settings', icon: 'sliders' },
