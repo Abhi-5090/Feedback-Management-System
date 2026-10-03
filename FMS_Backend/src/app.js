@@ -8,7 +8,7 @@ import { publicLimiter } from './middleware/rateLimit.js';
 import { hardenQuery } from './middleware/hardenQuery.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { requestContext } from './middleware/requestContext.js';
-import { metricsMiddleware, metricsHandler } from './middleware/metrics.js';
+import { metricsMiddleware, metricsHandler, legacyApiRequests } from './middleware/metrics.js';
 
 import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
@@ -21,6 +21,15 @@ import publicRoutes from './routes/publicRoutes.js';
  * Build the Express app. Exported separately from server.js so the test suite
  * can import the app without opening a network port.
  */
+/** Operational paths, exempt from versioning and from the deprecation notice. */
+const OPERATIONAL = new Set(['/health', '/ready', '/metrics']);
+
+/** The route groups the legacy alias actually serves. Anything else is 'other'. */
+const LEGACY_GROUPS = new Set([
+  'auth', 'analytics', 'dashboard', 'export', 'public',
+  'trainers', 'classes', 'batches', 'parameters', 'audit', 'system',
+]);
+
 export function createApp() {
   const app = express();
   app.set('trust proxy', 1); // correct client IPs behind a proxy (rate limiting)
@@ -138,19 +147,51 @@ export function createApp() {
   });
 
   // Auth
-  app.use('/api/auth', authRoutes);
+  /* ── API versioning ──────────────────────────────────────────────────────
+     Every domain route is mounted under /api/v1. The unprefixed /api/* paths
+     stay as a DEPRECATED ALIAS onto the same routers, because a version prefix
+     introduced by breaking the deployed frontend is not a migration, it is an
+     outage: Vercel and Render deploy independently, so for a few minutes a new
+     backend always serves an old bundle.
 
-  // Admin CRUD — mounted at /api so paths are /api/trainers, /api/classes,
-  // /api/parameters, /api/batches (all admin-guarded inside adminRoutes).
-  app.use('/api', adminRoutes);
+     The alias answers identically and adds RFC 8594 Deprecation and Sunset
+     headers, so the old path is visibly dated rather than quietly permanent.
 
-  // Analytics, dashboards, exports (role checks inside).
-  app.use('/api/analytics', analyticsRoutes);
-  app.use('/api/dashboard', dashboardRoutes);
-  app.use('/api/export', exportRoutes);
+     NOT versioned, deliberately: /api/health, /api/ready and /api/metrics.
+     They describe the PROCESS, not the domain — Render's healthCheckPath and
+     any scrape config point at fixed URLs, and a version bump that moves them
+     fails every deploy for a reason nobody connects to the change. */
+  const mountDomainRoutes = (prefix) => {
+    app.use(`${prefix}/auth`, authRoutes);
+    // Admin CRUD mounts at the root so paths are …/trainers, …/classes,
+    // …/parameters, …/batches (all admin-guarded inside adminRoutes).
+    app.use(prefix, adminRoutes);
+    app.use(`${prefix}/analytics`, analyticsRoutes);
+    app.use(`${prefix}/dashboard`, dashboardRoutes);
+    app.use(`${prefix}/export`, exportRoutes);
+    // Public anonymous student flow (rate-limited).
+    app.use(`${prefix}/public`, publicLimiter, publicRoutes);
+  };
 
-  // Public anonymous student flow (rate-limited).
-  app.use('/api/public', publicLimiter, publicRoutes);
+  mountDomainRoutes('/api/v1');
+
+  /* The legacy alias. Marked on the way out so a client can see it, and
+     counted in the metrics so there is a number behind "can we remove it yet?"
+     rather than a guess. */
+  app.use('/api', (req, res, next) => {
+    if (req.path.startsWith('/v1/') || OPERATIONAL.has(req.path)) return next();
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Sunset', env.apiSunset);
+    res.setHeader('Link', '</api/v1>; rel="successor-version"');
+    /* Bucketed to a KNOWN group. Labelling by the raw segment means every
+       404 to /api/<anything> mints a new time series — the same unbounded
+       cardinality the route labels are careful to avoid, and a trivial way
+       for an outsider to bloat the metrics endpoint. */
+    const group = req.path.split('/')[1] || '';
+    legacyApiRequests.inc({ group: LEGACY_GROUPS.has(group) ? group : 'other' });
+    return next();
+  });
+  mountDomainRoutes('/api');
 
   app.use(notFoundHandler);
   app.use(errorHandler);

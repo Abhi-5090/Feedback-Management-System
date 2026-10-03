@@ -53,6 +53,15 @@ const dbPool = new client.Gauge({
   },
 });
 
+/* How much traffic still uses the unversioned paths. The question "can the
+   legacy alias be removed yet?" should have a number behind it, not a guess. */
+export const legacyApiRequests = new client.Counter({
+  name: 'fms_legacy_api_requests_total',
+  help: 'Requests served on the deprecated unversioned /api/* paths',
+  labelNames: ['group'],
+  registers: [registry],
+});
+
 export const recordFeedback = (outcome) => feedbackSubmissions.inc({ outcome });
 
 /** Route pattern for labelling, falling back to a bucket rather than the URL. */

@@ -11,19 +11,36 @@
     "test": "cross-env NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit",
     "import:schedule": "node src/scripts/import-schedule.js",
     "migrate": "node src/scripts/migrate-mentor-rosters.js",
-    "test:ci": "cross-env NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --ci",
+    "test:ci": "cross-env NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --ci --coverage",
     "db:reset": "node src/scripts/reset-and-import.js",
     "loadtest": "node src/scripts/loadtest-cohort.js",
     "start:cluster": "node src/cluster.js",
     "reconcile": "node src/scripts/reconcile-counters.js",
-    "audit:policy": "node ../scripts/check-audit.mjs"
+    "audit:policy": "node ../scripts/check-audit.mjs",
+    "test:coverage": "cross-env NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --coverage"
   },
   "jest": {
     "testEnvironment": "node",
     "transform": {},
     "testMatch": [
       "**/src/tests/**/*.test.js"
-    ]
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/tests/**",
+      "!src/scripts/**",
+      "!src/seed.js",
+      "!src/cluster.js",
+      "!src/server.js"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "statements": 68,
+        "branches": 53,
+        "functions": 74,
+        "lines": 71
+      }
+    }
   },
   "dependencies": {
     "@sentry/node": "^10.76.0",

@@ -24,6 +24,11 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const fixtures = JSON.parse(readFileSync(join(HERE, '..', '.fixtures.json'), 'utf8'));
 const BATCH_URL = `/feedback/${fixtures.batchId}`;
 
+/* Matchers are version-AGNOSTIC. Pinning them to /api/… broke the suite the
+   day the client moved to /api/v1, which is a test failing on its own
+   plumbing rather than on the product. */
+const apiPath = (suffix) => new RegExp(`/api(?:/v\\d+)?${suffix}$`);
+
 /* Captured by the admin test and used by the student tests. Module scope
    because it genuinely is shared state: the passcode only exists once it has
    been generated, and generating it twice would invalidate the first. */
@@ -65,7 +70,7 @@ test.describe.serial('student submission', () => {
        looks like "EC2@MDFC!P4PK"), so a text regex is a guess that breaks the
        day the generator changes. Watching the response is exact. */
     const unlockResponse = page.waitForResponse(
-      (r) => /\/api\/batches\/[^/]+\/unlock$/.test(r.url()) && r.request().method() === 'POST'
+      (r) => apiPath('/batches/[^/]+/unlock').test(r.url()) && r.request().method() === 'POST'
     );
 
     await page.getByRole('button', { name: /unlock and generate a passcode/i }).first().click();
@@ -114,7 +119,7 @@ test.describe.serial('student submission', () => {
     await completeTheForm(page, 'The pace was good and the examples helped');
 
     const submitted = page.waitForResponse(
-      (r) => r.url().endsWith('/api/public/feedback') && r.request().method() === 'POST'
+      (r) => apiPath('/public/feedback').test(r.url()) && r.request().method() === 'POST'
     );
     await page.getByRole('button', { name: /submit feedback/i }).click();
     expect((await submitted).status()).toBe(201);
@@ -144,7 +149,7 @@ test.describe.serial('student submission', () => {
       if (!(await form.isVisible().catch(() => false))) return null;
 
       await completeTheForm(page, comment);
-      const response = page.waitForResponse((r) => r.url().endsWith('/api/public/feedback'));
+      const response = page.waitForResponse((r) => apiPath('/public/feedback').test(r.url()));
       await page.getByRole('button', { name: /submit feedback/i }).click();
       return (await response).status();
     };
@@ -171,7 +176,7 @@ test.describe.serial('student submission', () => {
       await expect(page.getByRole('radiogroup').first()).toBeVisible({ timeout: 15_000 });
 
       await completeTheForm(page, 'A different student on a different device');
-      const submitted = page.waitForResponse((r) => r.url().endsWith('/api/public/feedback'));
+      const submitted = page.waitForResponse((r) => apiPath('/public/feedback').test(r.url()));
       await page.getByRole('button', { name: /submit feedback/i }).click();
       expect((await submitted).status()).toBe(201);
     } finally {

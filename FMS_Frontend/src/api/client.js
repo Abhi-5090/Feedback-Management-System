@@ -2,14 +2,19 @@ import axios from 'axios';
 
 /**
  * Central axios instance.
- *  - baseURL: VITE_API_URL if set (cross-origin), else same-origin '/api'
+ *  - baseURL: VITE_API_URL if set (cross-origin), else same-origin '/api/v1'
  *    (dev proxy in vite.config.js / nginx forwards to the backend).
  *  - withCredentials so the httpOnly auth cookie rides along. The browser is
  *    same-origin with the API in both the dev-proxy and nginx deployments, so
  *    the first-party cookie is the sole auth transport — the JWT is NEVER stored
  *    in JS-readable storage (no localStorage), which keeps it out of reach of XSS.
  */
-const baseURL = (import.meta.env.VITE_API_URL || '') + '/api';
+/* /api/v1, not /api. The unversioned paths still answer — the backend keeps
+   them as a dated alias — but this client should be on the canonical one, and
+   the Sunset header exists so the alias does not become permanent by default.
+   VITE_API_BASE is an escape hatch for pointing a build at another version. */
+const API_VERSION = import.meta.env.VITE_API_BASE || '/api/v1';
+const baseURL = (import.meta.env.VITE_API_URL || '') + API_VERSION;
 
 export const api = axios.create({ baseURL, withCredentials: true });
 

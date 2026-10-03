@@ -123,6 +123,9 @@ export const env = {
      something. SENTRY_DSN is opt-in — unset, no error reporting is installed
      and nothing leaves the process. The commit is read from Render's injected
      variable so every log line says which build produced it. */
+  /* When the unversioned /api/* alias stops being served. A Sunset header
+     with no date is a deprecation nobody acts on. */
+  apiSunset: process.env.API_SUNSET || 'Wed, 01 Jul 2026 00:00:00 GMT',
   logLevel: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
   sentryDsn: process.env.SENTRY_DSN || '',
   sentrySampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || '0.1'),
