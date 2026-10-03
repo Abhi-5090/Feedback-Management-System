@@ -26,7 +26,18 @@ ghp_[A-Za-z0-9]{36}
 
 filelist="$(mktemp)"
 trap 'rm -f "$filelist"' EXIT
-git ls-files -z > "$filelist"
+# Tracked files PLUS anything newly added to the index.
+#
+# `git ls-files` alone lists only what is already committed, so a brand-new
+# file containing a secret passes this check locally and fails in CI after the
+# commit has made it tracked — which is exactly what happened: test fixtures
+# shaped like connection strings sailed past the pre-commit run and broke the
+# build. Adding the staged set closes that window, and `sort -u` keeps a file
+# that is both tracked and staged from being scanned twice.
+{
+  git ls-files -z
+  git diff --cached --name-only --diff-filter=ACMR -z 2>/dev/null || true
+} | tr '\0' '\n' | sed '/^$/d' | sort -u | tr '\n' '\0' > "$filelist"
 
 count=$(tr -cd '\0' < "$filelist" | wc -c | tr -d ' ')
 echo "Scanning $count tracked files for credentials…"
