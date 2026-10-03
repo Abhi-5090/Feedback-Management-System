@@ -1,0 +1,21 @@
+{
+  "name": "feedback-management-system",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Repository root. The application lives in FMS_Backend and FMS_Frontend, each with its own package.json; this file exists only to hold the cross-cutting checks and the end-to-end suite, which by definition belong to neither half.",
+  "type": "module",
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:report": "playwright show-report e2e/report",
+    "check:secrets": "bash scripts/check-secrets.sh",
+    "check:imports": "node scripts/check-imports.mjs",
+    "check:audit": "node scripts/check-audit.mjs",
+    "check": "npm run check:secrets && npm run check:imports && npm run check:audit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "mongodb-memory-server": "^10.1.4"
+  },
+  "engines": { "node": ">=20" }
+}

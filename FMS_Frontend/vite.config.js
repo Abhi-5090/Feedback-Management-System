@@ -38,6 +38,25 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    /* `vite preview` serves the BUILD output, and the end-to-end suite runs
+       against it rather than the dev server — a dev server resolves modules
+       differently and skips minification, so it can pass while the bundle
+       users actually receive is broken.
+       It needs the same /api proxy as dev, for the reason the whole
+       deployment is shaped this way: the auth cookie is httpOnly and
+       first-party, so the browser must see the API on its OWN origin. In
+       production Vercel's rewrite does this; here, preview does. Pointing the
+       app at a cross-origin API instead would exercise a code path that
+       production never takes. */
+    preview: {
+      port: 4173,
+      proxy: {
+        '/api': {
+          target: apiTarget,
+          changeOrigin: true,
+        },
+      },
+    },
     test: {
       environment: 'jsdom',
       globals: true,

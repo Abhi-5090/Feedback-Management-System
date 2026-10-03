@@ -42,3 +42,11 @@ tmp/
 # Database backups written by reset-and-import.js (contain password hashes)
 backups/
 **/backups/
+
+# End-to-end run artifacts. The fixtures file is REGENERATED on every run by
+# e2e/start-backend.mjs; committing it would pin tests to ids from one machine.
+e2e/.fixtures.json
+e2e/results/
+e2e/report/
+playwright-report/
+test-results/

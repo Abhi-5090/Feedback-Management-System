@@ -76,6 +76,35 @@ jobs:
   # Proves the importer and migration parse and run end to end against a real
   # replica set, so a schema change can't quietly break the one script that has
   # to work on a production upgrade.
+  # The student submission flow, in a real browser. Last, because it is the
+  # slowest job and the cheapest suites should fail first — but required, not
+  # optional: this is the one path where a failure cannot be retried.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Install
+        run: |
+          npm ci
+          npm ci --prefix FMS_Backend
+          npm ci --prefix FMS_Frontend
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run end-to-end tests
+        run: npm run e2e
+        env:
+          CI: "true"
+      - name: Upload the report when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/report
+          retention-days: 7
+
   scripts:
     runs-on: ubuntu-latest
     services:
