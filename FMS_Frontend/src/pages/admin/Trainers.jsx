@@ -127,7 +127,7 @@ export default function Trainers() {
     try {
       if (modal === 'create') {
         await TrainersAPI.create(form);
-        toast.success('Trainer created');
+        toast.success('mentor created');
       } else {
         const patch = {
           name: form.name,
@@ -137,7 +137,7 @@ export default function Trainers() {
         };
         if (form.password) patch.password = form.password;
         await TrainersAPI.update(modal._id, patch);
-        toast.success('Trainer updated');
+        toast.success('mentor updated');
       }
       setModal(null);
       load();
@@ -201,7 +201,7 @@ export default function Trainers() {
   const pg = usePagination(shown, PER_PAGE, query);
   const newTrainerBtn = (
     <button className="btn-primary" onClick={openCreate}>
-      <Icon name="plus" size={16} /> New trainer
+      <Icon name="plus" size={16} /> New mentor
     </button>
   );
 
@@ -265,8 +265,8 @@ export default function Trainers() {
     <div className="space-y-5">
       <PageHeader
         eyebrow="People"
-        title="Trainers"
-        subtitle="Create and manage the people who teach classes. A trainer can view feedback only for their own classes."
+        title="Mentors"
+        subtitle="Create and manage the people who teach classes. A mentor sees feedback only for the sessions they are staffed on, as main or support."
         action={headerActions}
       />
 
@@ -281,7 +281,7 @@ export default function Trainers() {
           </>
         ) : (
           <>
-            <Metric icon="users" label="Total trainers" value={trainers.length} />
+            <Metric icon="users" label="Total mentors" value={trainers.length} />
             <Metric icon="checkCircle" label="Active" value={activeCount} tone="positive" />
             <Metric icon="book" label="Classes covered" value={classTotal} tone="neutral" />
           </>
@@ -289,7 +289,7 @@ export default function Trainers() {
       </div>
 
       <Card
-        title="All trainers"
+        title="All mentors"
         icon={<Icon name="graduation" size={15} className="text-brand-600 dark:text-brand-400" />}
         hint="A trainer is a staff account that owns one or more classes. They sign in with this email and see feedback only for the classes assigned to them."
         subtitle={
@@ -302,7 +302,7 @@ export default function Trainers() {
         actions={
           trainers?.length ? (
             <TableSearch
-              label="trainers"
+              label="mentors"
               value={query}
               onChange={setQuery}
               placeholder="Search name or email…"
@@ -317,14 +317,14 @@ export default function Trainers() {
           </div>
         ) : trainers.length === 0 ? (
           <EmptyState
-            title="No trainers yet"
+            title="No mentors yet"
             hint="Create your first trainer, then assign classes to them so they can start receiving feedback."
             icon={<Icon name="users" size={24} className="text-muted" />}
             action={newTrainerBtn}
           />
         ) : shown.length === 0 ? (
           <EmptyState
-            title="No trainers match that search"
+            title="No mentors match that search"
             hint={`Nothing matched “${query}”. Try a different name or email.`}
             icon={<Icon name="search" size={24} className="text-muted" />}
             action={<button className="btn-outline" onClick={() => setQuery('')}>Clear search</button>}
@@ -406,7 +406,7 @@ export default function Trainers() {
               from={pg.from}
               to={pg.to}
               total={pg.total}
-              unit={query ? "matching trainers" : "trainers"}
+              unit={query ? "matching mentors" : "mentors"}
             />
           </>
         )}
@@ -415,7 +415,7 @@ export default function Trainers() {
       <Modal
         open={!!modal}
         onClose={() => setModal(null)}
-        title={isCreate ? 'New trainer' : 'Edit trainer'}
+        title={isCreate ? 'New mentor' : 'Edit mentor'}
         description={
           isCreate
             ? 'They will sign in with this email and password. You can assign classes to them straight after.'

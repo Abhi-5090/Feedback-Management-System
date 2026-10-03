@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AnalyticsAPI, DashboardAPI } from '../../api/endpoints.js';
 import { usePolling } from '../../hooks/usePolling.js';
 import { useToast } from '../../components/Toast.jsx';
-import StatTile from '../../components/StatTile.jsx';
+import StatTile, { ratingTone, rateTone } from '../../components/StatTile.jsx';
 import Card from '../../components/Card.jsx';
 import Hero from '../../components/Hero.jsx';
 import OpenBatchesPanel from '../../components/OpenBatchesPanel.jsx';
@@ -18,8 +18,8 @@ import VolumeBarChart from '../../components/charts/VolumeBarChart.jsx';
 function DashboardSkeleton() {
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-        {Array.from({ length: 6 }).map((_, i) => (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {Array.from({ length: 7 }).map((_, i) => (
           <SkeletonBlock key={i} height={104} className="rounded-2xl" />
         ))}
       </div>
@@ -80,22 +80,15 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-5">
-      {/* Hero answers "how are we doing?" before any detail is read */}
+      {/* The hero says WHERE you are. It used to repeat three numbers —
+          overall rating, responses, open now — that the tiles immediately
+          below already carry, in a second visual style: the same fact stated
+          twice, which makes a reader check whether the two agree instead of
+          reading either. The tiles own the numbers now. */}
       <Hero
         eyebrow="Admin workspace"
         title="System overview"
-        subtitle="Every class, trainer, batch and anonymous response across the platform."
-        metricLabel="Overall rating"
-        metric={k ? k.overallAverage.toFixed(2) : '—'}
-        metricSuffix="/ 5"
-        stats={
-          k
-            ? [
-                { label: 'Responses', value: k.feedbackCount },
-                { label: 'Open now', value: k.openBatches },
-              ]
-            : []
-        }
+        subtitle="Every class, mentor, batch and anonymous response across the platform."
       />
 
       {/* Exports live here on their own. The dashboard is deliberately the
@@ -110,18 +103,32 @@ export default function AdminDashboard() {
       ) : (
         <>
           {/* KPI tiles — every one carries a tooltip so the dashboard teaches itself */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-            <StatTile label="Mentors" value={k.trainers} icon="users" accent="violet" delay={0}
+          {/* KPI tiles. Four across at most, never seven: at 1440px a
+              seven-column row gives each tile about 100px, which is not enough
+              for "0 of 25" to sit beside a number without wrapping. Two rows of
+              calm tiles read faster than one row of cramped ones.
+
+              Colour is SEMANTIC here (see TONES in StatTile). Counts are
+              neutral because a count has no good or bad; the two tiles that do
+              carry a judgement — the rating and the response rate — take their
+              colour from their own value, so a row that is fine looks fine at a
+              glance and a row that is not shows exactly where. */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <StatTile label="Mentors" value={k.trainers} icon="users" tone="neutral" delay={0}
               hint="Active mentors. Each sees feedback only for sessions they are staffed on, as main or support." />
-            <StatTile label="Classes" value={k.classes} icon="book" accent="sky" delay={40}
+            <StatTile label="Classes" value={k.classes} icon="book" tone="neutral" delay={40}
               hint="Training subjects. Staffing is decided per batch, so the same subject can run with different mentor teams for different cohorts." />
-            <StatTile label="Batches" value={k.batches} icon="ticket" accent="brand" delay={80}
+            <StatTile label="Batches" value={k.batches} icon="ticket" tone="neutral" delay={80}
               hint="Cohorts. Each batch spans several subjects, owns its passcode, and has its own open/closed window." />
-            <StatTile label="Open now" value={k.openBatches} icon="unlock" accent="emerald" delay={120}
+            {/* An open batch is a live state worth seeing; zero open is simply
+                the resting state, not a problem. */}
+            <StatTile label="Open now" value={k.openBatches} icon="unlock" delay={120}
+              tone={k.openBatches > 0 ? 'good' : 'neutral'}
               hint="Batches currently accepting feedback (unlocked window)." />
-            <StatTile label="Feedback" value={k.feedbackCount} icon="inbox" accent="amber" delay={160}
+            <StatTile label="Feedback" value={k.feedbackCount} icon="inbox" tone="neutral" delay={160}
               hint="Total anonymous responses collected across the platform." />
-            <StatTile label="Avg rating" value={k.overallAverage.toFixed(2)} icon="star" accent="rose" delay={200}
+            <StatTile label="Avg rating" value={k.overallAverage.toFixed(2)} icon="star" delay={200}
+              tone={ratingTone(k.overallAverage)}
               sub="out of 5"
               hint="Mean of every star given across all rated parameters." />
             {/* A raw feedback count cannot tell you whether a survey landed.
@@ -131,7 +138,7 @@ export default function AdminDashboard() {
               label="Response rate"
               value={`${k.responseRate ?? 0}%`}
               icon="activity"
-              accent="teal"
+              tone={rateTone(k.responseRate)}
               delay={240}
               sub={`${k.submittedResponses ?? 0} of ${k.expectedResponses ?? 0}`}
               hint="Students who have responded, against the expected cohort sizes of every batch with a cap set. This is the number that tells you whether a survey actually reached people."

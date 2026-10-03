@@ -82,7 +82,7 @@ export default function TrainerDashboard() {
   return (
     <div className="space-y-5">
       <Hero
-        eyebrow="Trainer workspace"
+        eyebrow="Mentor workspace"
         title={`Welcome back, ${user?.name?.split(' ')[0] || 'there'}`}
         subtitle="Everything here is scoped to the classes assigned to you — never anyone else's data."
         metricLabel="My rating"

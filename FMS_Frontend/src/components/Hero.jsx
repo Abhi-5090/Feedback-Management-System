@@ -15,8 +15,13 @@ const isNum = (v) => typeof v === 'number' || (typeof v === 'string' && /^\d+(\.
 const decimalsOf = (v) => (String(v).includes('.') ? String(v).split('.')[1].length : 0);
 
 export default function Hero({ eyebrow, title, subtitle, metric, metricLabel, metricSuffix, stats = [], actions }) {
+  const hasFigures = Boolean(metric) || stats.length > 0;
   return (
-    <section className="hero px-5 py-6 sm:px-7 sm:py-8">
+    /* Padding follows the content. With a metric and stats the banner needs
+       room to hold them; with only a title it does not, and the generous
+       version leaves a large block of brand colour saying nothing — which
+       reads as a placeholder somebody forgot to fill rather than a header. */
+    <section className={`hero px-5 sm:px-7 ${hasFigures ? 'py-6 sm:py-8' : 'py-5 sm:py-6'}`}>
       <div className="hero-body flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           {eyebrow && (

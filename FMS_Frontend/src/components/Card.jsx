@@ -19,7 +19,8 @@ export default function Card({
 }) {
   return (
     <section
-      className={`${interactive ? 'card-interactive' : 'panel'} overflow-hidden ${className}`}
+      // `group` so the help chip in the header can fade in on card hover.
+      className={`group ${interactive ? 'card-interactive' : 'panel'} overflow-hidden ${className}`}
     >
       {/* The header wraps: a card carrying controls (a filter pair, a sort)
           drops them onto their own line on a narrow screen rather than

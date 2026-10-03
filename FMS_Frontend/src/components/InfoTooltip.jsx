@@ -62,7 +62,21 @@ export default function InfoTooltip({ text, className = '' }) {
           e.preventDefault();
           open ? hide() : show(true);
         }}
-        className="focus-ring grid h-4 w-4 place-items-center rounded-full border border-line text-[10px] font-bold leading-none text-muted transition-colors duration-150 hover:border-brand-500 hover:text-brand-600"
+        /* Quiet at rest, present on approach.
+           Every tile and every card heading carries one of these, so at full
+           opacity they form a field of small circles the eye has to dismiss
+           before it can read the page. Fading them in when the surrounding
+           card is hovered keeps the affordance exactly where it was without
+           spending attention when nobody is looking for help.
+           It stays fully visible when focused or open, so the keyboard path is
+           untouched — and on touch, where there is no hover, `group-hover`
+           never matches and the default opacity applies. */
+        className={`focus-ring grid h-4 w-4 place-items-center rounded-full border border-line
+          text-[10px] font-bold leading-none text-muted
+          opacity-100 md:opacity-45 md:group-hover:opacity-100 focus-visible:!opacity-100
+          ${open ? 'md:!opacity-100' : ''}
+          transition-[opacity,color,border-color] duration-150 ease-out
+          hover:border-brand-500 hover:text-brand-600`}
       >
         ?
       </button>

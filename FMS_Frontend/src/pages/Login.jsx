@@ -114,7 +114,7 @@ export default function Login() {
         <div className="mb-7">
           <h1 className="text-2xl font-bold leading-tight tracking-tight text-ink">Sign in</h1>
           <p className="mt-1 text-sm text-muted">
-            Admin &amp; trainer access to the feedback workspace.
+            Admin &amp; mentor access to the feedback workspace.
           </p>
         </div>
 

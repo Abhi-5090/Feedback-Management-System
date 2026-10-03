@@ -50,7 +50,7 @@ vi.mock('framer-motion', async () => {
 describe('<Modal />', () => {
   it('renders nothing when closed', () => {
     render(
-      <Modal open={false} onClose={() => {}} title="Add trainer">
+      <Modal open={false} onClose={() => {}} title="Add mentor">
         <input aria-label="Name" />
       </Modal>
     );
@@ -59,14 +59,14 @@ describe('<Modal />', () => {
 
   it('renders an accessible dialog with aria-modal and the title', () => {
     render(
-      <Modal open onClose={() => {}} title="Add trainer" description="Fill in the details">
+      <Modal open onClose={() => {}} title="Add mentor" description="Fill in the details">
         <p>body</p>
       </Modal>
     );
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(dialog).toHaveAttribute('aria-label', 'Add trainer');
-    expect(screen.getByRole('heading', { name: 'Add trainer' })).toBeInTheDocument();
+    expect(dialog).toHaveAttribute('aria-label', 'Add mentor');
+    expect(screen.getByRole('heading', { name: 'Add mentor' })).toBeInTheDocument();
     expect(screen.getByText('Fill in the details')).toBeInTheDocument();
   });
 
@@ -90,7 +90,7 @@ describe('<Modal />', () => {
       const [open, setOpen] = useState(true);
       const [value, setValue] = useState('');
       return (
-        <Modal open={open} onClose={() => setOpen(false)} title="Add trainer">
+        <Modal open={open} onClose={() => setOpen(false)} title="Add mentor">
           <input
             aria-label="Full name"
             value={value}
@@ -144,7 +144,7 @@ describe('<Modal />', () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(
-      <Modal open onClose={onClose} title="Add trainer">
+      <Modal open onClose={onClose} title="Add mentor">
         <input aria-label="Name" />
       </Modal>
     );
@@ -160,12 +160,12 @@ describe('<Modal />', () => {
     const latest = vi.fn();
 
     const { rerender } = render(
-      <Modal open onClose={first} title="Add trainer">
+      <Modal open onClose={first} title="Add mentor">
         <input aria-label="Name" />
       </Modal>
     );
     rerender(
-      <Modal open onClose={latest} title="Add trainer">
+      <Modal open onClose={latest} title="Add mentor">
         <input aria-label="Name" />
       </Modal>
     );
@@ -180,7 +180,7 @@ describe('<Modal />', () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(
-      <Modal open onClose={onClose} title="Add trainer">
+      <Modal open onClose={onClose} title="Add mentor">
         <p>body</p>
       </Modal>
     );
@@ -192,14 +192,14 @@ describe('<Modal />', () => {
 
   it('locks background scroll while open and restores it on close', () => {
     const { rerender } = render(
-      <Modal open onClose={() => {}} title="Add trainer">
+      <Modal open onClose={() => {}} title="Add mentor">
         <p>body</p>
       </Modal>
     );
     expect(document.body.style.overflow).toBe('hidden');
 
     rerender(
-      <Modal open={false} onClose={() => {}} title="Add trainer">
+      <Modal open={false} onClose={() => {}} title="Add mentor">
         <p>body</p>
       </Modal>
     );
@@ -209,7 +209,7 @@ describe('<Modal />', () => {
   it('traps Tab inside the dialog', async () => {
     const user = userEvent.setup();
     render(
-      <Modal open onClose={() => {}} title="Add trainer">
+      <Modal open onClose={() => {}} title="Add mentor">
         <input aria-label="Name" />
         <button type="button">Save</button>
       </Modal>

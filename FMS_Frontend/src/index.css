@@ -152,7 +152,7 @@ body {
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5
            text-sm font-semibold select-none
-           disabled:opacity-50 disabled:pointer-events-none;
+           disabled:pointer-events-none;
     transition: transform var(--d-press) var(--ease-out),
                 background-color var(--d-hover) ease,
                 border-color var(--d-hover) ease,
@@ -166,6 +166,24 @@ body {
   .btn-primary {
     @apply btn text-white shadow-brand;
     background-image: linear-gradient(to bottom, theme('colors.brand.500'), theme('colors.brand.600'));
+  }
+
+  /* ── Disabled ────────────────────────────────────────────────────────────
+     A flat opacity:0.5 on a brand button produces a washed-out orange, which
+     reads as "a button mid-loading" rather than "a button you cannot press" —
+     and on the student passcode gate that is the FIRST thing anyone sees, a
+     pale primary button sitting under an empty field. Desaturating instead
+     removes the invitation: the control is visibly inert, and the colour is no
+     longer making a promise the state does not keep. */
+  .btn:disabled {
+    @apply opacity-100;
+    filter: saturate(0.15) opacity(0.6);
+    box-shadow: none;
+  }
+  .btn-outline:disabled,
+  .btn-ghost:disabled {
+    filter: none;
+    @apply opacity-45;
   }
   @media (hover: hover) and (pointer: fine) {
     .btn-primary:hover { @apply shadow-brand-hover; filter: brightness(1.07); }

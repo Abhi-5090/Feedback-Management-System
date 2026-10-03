@@ -141,7 +141,7 @@ export default function BulkUploadTrainers({ open, onClose, onImported }) {
     <Modal
       open={open}
       onClose={close}
-      title="Import trainers from Excel"
+      title="Import mentors from Excel"
       description="Upload a spreadsheet to create many trainers at once, then set one password they all start with."
       maxWidth="max-w-3xl"
     >

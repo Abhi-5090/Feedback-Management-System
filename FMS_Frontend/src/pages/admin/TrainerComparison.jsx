@@ -138,7 +138,7 @@ export default function TrainerComparison() {
         ) : rated.length === 0 ? (
           <EmptyState
             icon="barChart"
-            title="No rated trainers yet"
+            title="No rated mentors yet"
             hint="Once students submit feedback, every trainer appears here ranked on the same parameters."
           />
         ) : (

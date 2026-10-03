@@ -30,8 +30,35 @@ const ACCENTS = {
   indigo: '#6366f1',
 };
 
-export default function StatTile({ label, value, hint, icon, accent = 'brand', delay = 0, sub }) {
-  const color = ACCENTS[accent] || ACCENTS.brand;
+/**
+ * SEMANTIC tones — colour that carries information rather than decoration.
+ *
+ * `accent` still exists because a tile and a chart series describing the same
+ * thing must agree, and the chart palette is categorical. But a row of KPIs is
+ * not a chart legend: seven tiles in seven colours reads as a template, and it
+ * spends the reader's whole colour budget before any of it has said anything.
+ *
+ * A tone says something. Grey means "this is a count, it has no good or bad".
+ * Green means the number is healthy, amber that it needs watching, red that it
+ * does not. Once colour is reserved for that, the one red tile in a row is
+ * seen immediately — which is the entire job of a dashboard.
+ */
+const TONES = {
+  neutral: '#94a3b8',
+  brand: '#ea5829',
+  good: '#10b981',
+  warn: '#f59e0b',
+  bad: '#f43f5e',
+};
+
+/** Map a 0–5 rating onto a tone. */
+export const ratingTone = (n) => (n == null || n === 0 ? 'neutral' : n >= 4.2 ? 'good' : n >= 3.5 ? 'warn' : 'bad');
+
+/** Map a 0–100 response rate onto a tone. */
+export const rateTone = (n) => (n == null || n === 0 ? 'neutral' : n >= 75 ? 'good' : n >= 40 ? 'warn' : 'bad');
+
+export default function StatTile({ label, value, hint, icon, accent, tone, delay = 0, sub }) {
+  const color = tone ? TONES[tone] || TONES.neutral : ACCENTS[accent] || ACCENTS.brand;
 
   // Only numeric values count up; "—" or a formatted string renders as-is.
   const numeric = typeof value === 'number' || (typeof value === 'string' && /^\d+(\.\d+)?$/.test(value));
@@ -48,7 +75,7 @@ export default function StatTile({ label, value, hint, icon, accent = 'brand', d
       <span
         aria-hidden="true"
         className="absolute inset-x-0 top-0 h-1"
-        style={{ backgroundColor: color }}
+        style={{ backgroundColor: color, opacity: tone === 'neutral' ? 0.45 : 1 }}
       />
 
       <div className="relative flex items-start justify-between gap-2 pt-1">
