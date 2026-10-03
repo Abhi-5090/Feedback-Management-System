@@ -1,5 +1,6 @@
 import Icon from './Icon.jsx';
 import InfoTooltip from './InfoTooltip.jsx';
+import SummaryStat, { SummaryStrip } from './SummaryStat.jsx';
 
 /**
  * The year-group cards that open the catalog.
@@ -202,36 +203,29 @@ export function YearTotals({ years }) {
   const rate = t.students ? Math.round((t.submitted / t.students) * 1000) / 10 : null;
 
   return (
-    <div className="panel divide-y divide-line sm:grid sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-      <Fig label="Year groups" value={years.length} icon="graduation" />
-      <Fig label="Batches" value={t.batches} icon="ticket" sub={t.open ? `${t.open} collecting` : 'none open'} />
-      <Fig label="Students" value={t.students.toLocaleString()} icon="users" />
-      <Fig
+    <SummaryStrip>
+      <SummaryStat label="Year groups" value={years.length} icon="graduation" />
+      <SummaryStat
+        label="Batches"
+        value={t.batches}
+        icon="ticket"
+        tone={t.open ? 'positive' : 'neutral'}
+        sub={t.open ? `${t.open} collecting` : 'none open'}
+      />
+      <SummaryStat
+        label="Students"
+        value={t.students.toLocaleString()}
+        icon="users"
+        hint="Expected cohort size across every batch in the year, taken from the count set when each batch is unlocked. A cohort taking several subjects is counted once."
+      />
+      <SummaryStat
         label="Answered"
         value={rate == null ? '—' : `${rate}%`}
         icon="inbox"
         sub={`${t.submitted.toLocaleString()} of ${t.students.toLocaleString()}`}
       />
-    </div>
+    </SummaryStrip>
   );
 }
 
-function Fig({ label, value, sub, icon }) {
-  return (
-    <div className="flex items-start gap-3 p-4">
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-muted">
-        <Icon name={icon} size={15} />
-      </span>
-      <div className="min-w-0">
-        <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
-          {label}
-          {label === 'Students' && (
-            <InfoTooltip text="Expected cohort size across every batch in the year, taken from the count set when each batch is unlocked. A cohort taking several subjects is counted once." />
-          )}
-        </p>
-        <p className="tnum mt-0.5 text-xl font-bold text-ink">{value}</p>
-        {sub && <p className="mt-0.5 truncate text-[11px] text-subtle">{sub}</p>}
-      </div>
-    </div>
-  );
-}
+

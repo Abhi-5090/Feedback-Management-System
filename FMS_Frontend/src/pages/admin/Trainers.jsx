@@ -10,6 +10,7 @@ import InfoTooltip from '../../components/InfoTooltip.jsx';
 import Icon from '../../components/Icon.jsx';
 import Pagination, { usePagination } from '../../components/Pagination.jsx';
 import TableSearch, { useSearchFilter } from '../../components/TableSearch.jsx';
+import SummaryStat from '../../components/SummaryStat.jsx';
 
 /* ── Small presentational helpers (local to this page) ───────────────────── */
 
@@ -49,26 +50,6 @@ function Avatar({ name }) {
  * One figure in the summary strip. The number leads at display size and the
  * label sits under it in small caps — the eye lands on the value, not the word.
  */
-function Metric({ icon, label, value, tone = 'brand' }) {
-  const tones = {
-    brand: 'bg-brand-500/12 text-brand-600 dark:text-brand-400',
-    positive: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400',
-    neutral: 'bg-surface-2 text-muted',
-  };
-  return (
-    <div className="flex items-center gap-3 px-5 py-4">
-      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${tones[tone]}`}>
-        <Icon name={icon} size={17} />
-      </span>
-      <div className="min-w-0">
-        <p className="text-display-sm tnum leading-none text-ink">{value}</p>
-        <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
-          {label}
-        </p>
-      </div>
-    </div>
-  );
-}
 
 const PER_PAGE = 10;
 
@@ -281,9 +262,9 @@ export default function Trainers() {
           </>
         ) : (
           <>
-            <Metric icon="users" label="Total mentors" value={trainers.length} />
-            <Metric icon="checkCircle" label="Active" value={activeCount} tone="positive" />
-            <Metric icon="book" label="Classes covered" value={classTotal} tone="neutral" />
+            <SummaryStat icon="users" label="Total mentors" value={trainers.length} tone="brand" />
+            <SummaryStat icon="checkCircle" label="Active" value={activeCount} tone="positive" />
+            <SummaryStat icon="book" label="Classes covered" value={classTotal} tone="neutral" />
           </>
         )}
       </div>
@@ -291,7 +272,7 @@ export default function Trainers() {
       <Card
         title="All mentors"
         icon={<Icon name="graduation" size={15} className="text-brand-600 dark:text-brand-400" />}
-        hint="A trainer is a staff account that owns one or more classes. They sign in with this email and see feedback only for the classes assigned to them."
+        hint="A mentor is a staff account staffed onto sessions. They sign in with this email and see feedback only for the sessions they teach, as main or support."
         subtitle={
           trainers
             ? query
@@ -318,7 +299,7 @@ export default function Trainers() {
         ) : trainers.length === 0 ? (
           <EmptyState
             title="No mentors yet"
-            hint="Create your first trainer, then assign classes to them so they can start receiving feedback."
+            hint="Create your first mentor, then staff them onto a batch so they can start receiving feedback."
             icon={<Icon name="users" size={24} className="text-muted" />}
             action={newTrainerBtn}
           />

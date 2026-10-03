@@ -383,7 +383,14 @@ export default function FeedbackForm({ batchId, session, onSubmitted }) {
                       status.commentOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted'
                     }`}
                   >
-                    {status.commentOk ? `${status.commentLen} characters` : `${status.commentLen}/${MIN_COMMENT}`}
+                    {/* "0/10" beside a field marked required reads as "0 of 10
+                        comments" — a student counting how many boxes they still
+                        have to fill. Naming the unit removes the second reading,
+                        and once the minimum is met the count stops being a
+                        requirement and becomes reassurance. */}
+                    {status.commentOk
+                      ? `${status.commentLen} characters`
+                      : `${status.commentLen} of ${MIN_COMMENT} characters`}
                   </span>
                 </div>
                 <textarea
@@ -401,7 +408,7 @@ export default function FeedbackForm({ batchId, session, onSubmitted }) {
         );
       })}
 
-      <p className="hint px-1">Shared anonymously with your trainers — never linked to you.</p>
+      <p className="hint px-1">Shared anonymously with your mentors — never linked to you.</p>
 
       <AnimatePresence>
         {error && (

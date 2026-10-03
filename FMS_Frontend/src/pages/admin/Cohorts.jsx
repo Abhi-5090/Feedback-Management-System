@@ -7,6 +7,7 @@ import Card, { EmptyState } from '../../components/Card.jsx';
 import { SkeletonRows } from '../../components/Spinner.jsx';
 import Icon from '../../components/Icon.jsx';
 import InfoTooltip from '../../components/InfoTooltip.jsx';
+import SummaryStat, { SummaryStrip } from '../../components/SummaryStat.jsx';
 
 /**
  * Cohorts & deployment — the two institution-level views the per-class pages
@@ -93,18 +94,19 @@ export default function Cohorts() {
 
       {/* ── Institution totals ──────────────────────────────────────────── */}
       {totals && (
-        <div className="panel animate-fade-up divide-y divide-line sm:grid sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-          <Fig
+        <SummaryStrip className="animate-fade-up">
+          <SummaryStat
             label="Response rate"
             value={`${totals.rate}%`}
             sub={`${totals.submitted.toLocaleString()} of ${totals.expected.toLocaleString()} students`}
             icon="activity"
-            tone={totals.rate >= 60 ? 'emerald' : totals.rate >= 30 ? 'amber' : 'rose'}
+            tone={totals.rate >= 60 ? 'positive' : totals.rate >= 30 ? 'warn' : 'neutral'}
+            valueTone={totals.rate >= 30 ? 'default' : 'danger'}
           />
-          <Fig label="Year groups" value={cohorts.length} icon="graduation" />
-          <Fig label="Batches" value={totals.batches} icon="ticket" />
-          <Fig label="Feedback rows" value={totals.responses.toLocaleString()} icon="inbox" />
-        </div>
+          <SummaryStat label="Year groups" value={cohorts.length} icon="graduation" />
+          <SummaryStat label="Batches" value={totals.batches} icon="ticket" />
+          <SummaryStat label="Feedback rows" value={totals.responses.toLocaleString()} icon="inbox" />
+        </SummaryStrip>
       )}
 
       {/* ── Year-group roll-up ──────────────────────────────────────────── */}
@@ -331,25 +333,4 @@ function RateBar({ rate, submitted, expected }) {
   );
 }
 
-function Fig({ label, value, sub, icon, tone }) {
-  const toneCls =
-    tone === 'emerald'
-      ? 'text-emerald-700 dark:text-emerald-400'
-      : tone === 'amber'
-        ? 'text-amber-700 dark:text-amber-400'
-        : tone === 'rose'
-          ? 'text-rose-700 dark:text-rose-400'
-          : 'text-ink';
-  return (
-    <div className="flex items-start gap-3 p-4">
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-muted">
-        <Icon name={icon} size={15} />
-      </span>
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>
-        <p className={`tnum mt-0.5 text-xl font-bold ${toneCls}`}>{value}</p>
-        {sub && <p className="mt-0.5 truncate text-[11px] text-subtle">{sub}</p>}
-      </div>
-    </div>
-  );
-}
+

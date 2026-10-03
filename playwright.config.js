@@ -21,9 +21,9 @@ const WEB_PORT = process.env.E2E_WEB_PORT || '5174';
 
 export default defineConfig({
   testDir: './e2e/tests',
-  /* Specs prefixed with _ are tools, not tests — the screenshot capture used
-     for design review asserts nothing and should not gate a build. */
-  testIgnore: '**/_*.spec.js',
+  /* e2e/review/ holds design-review tooling — a screenshot capture that
+     asserts nothing. It lives outside testDir so it can never gate a build,
+     and is run on demand with `npm run review:shots`. */
   // One worker. These tests share one database and one batch, and the thing
   // under test is "one submission per device" — parallel workers racing the
   // same device lock would produce failures that say nothing about the code.

@@ -60,7 +60,7 @@ export default function EnterPasscode({ batchId, onVerified }) {
         </div>
         <h2 className="text-lg font-bold tracking-tight text-ink">Enter the batch passcode</h2>
         <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-muted">
-          Your trainer shared a short code for this session. It takes under a minute.
+          Your mentor shared a short code for this session. It takes under a minute.
         </p>
       </div>
 

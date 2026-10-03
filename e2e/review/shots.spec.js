@@ -1,0 +1,64 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { test } from '@playwright/test';
+import { ADMIN } from '../seed.mjs';
+
+/** Design-review capture. Asserts nothing — excluded from the suite by testIgnore. */
+const HERE = dirname(fileURLToPath(import.meta.url));
+const fx = JSON.parse(readFileSync(join(HERE, '..', '.fixtures.json'), 'utf8'));
+const shot = (p) => join(HERE, '..', 'shots', p);
+
+const ADMIN_PAGES = [
+  ['', 'dashboard'], ['feedbacks', 'feedbacks'], ['trainers', 'mentors'],
+  ['compare', 'compare'], ['cohorts', 'cohorts'], ['classes', 'classes'],
+  ['parameters', 'parameters'], ['batches', 'batches'], ['audit', 'audit'],
+  ['settings', 'settings'],
+];
+
+for (const theme of ['light', 'dark']) {
+  test(`capture ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.addInitScript((t) => window.localStorage.setItem('fms_theme', t), theme);
+
+    await page.goto('/login');
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: shot(`${theme}-00-login.png`) });
+
+    await page.locator('#email').fill(ADMIN.email);
+    await page.locator('#password').fill(ADMIN.password);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.waitForURL(/\/admin/, { timeout: 20000 });
+
+    for (const [slug, name] of ADMIN_PAGES) {
+      await page.goto(`/admin/${slug}`);
+      await page.waitForTimeout(1100);
+      await page.screenshot({ path: shot(`${theme}-${name}.png`) });
+    }
+
+    // Student flow: gate, then the form itself.
+    await page.context().clearCookies();
+    await page.goto(`/feedback/${fx.batchId}`);
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: shot(`${theme}-student-gate.png`) });
+
+    /* Through the gate, so the form itself is reviewed — it is the surface
+       the most people ever see and the only one a student ever sees. */
+    const unlock = await page.request.post(
+      `http://localhost:${process.env.E2E_API_PORT || 5051}/api/v1/auth/login`,
+      { data: { email: ADMIN.email, password: ADMIN.password } }
+    );
+    const token = (await unlock.json()).token;
+    const opened = await page.request.post(
+      `http://localhost:${process.env.E2E_API_PORT || 5051}/api/v1/batches/${fx.batchId}/unlock`,
+      { data: { expectedCount: 50 }, headers: { Authorization: `Bearer ${token}` } }
+    );
+    const passcode = (await opened.json()).passcode;
+
+    await page.goto(`/feedback/${fx.batchId}`);
+    await page.getByPlaceholder(/FA2@/i).fill(passcode);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.waitForTimeout(1400);
+    await page.screenshot({ path: shot(`${theme}-student-form.png`), fullPage: true });
+  });
+}

@@ -11,11 +11,14 @@
     "check:secrets": "bash scripts/check-secrets.sh",
     "check:imports": "node scripts/check-imports.mjs",
     "check:audit": "node scripts/check-audit.mjs",
-    "check": "npm run check:secrets && npm run check:imports && npm run check:audit"
+    "check": "npm run check:secrets && npm run check:imports && npm run check:audit",
+    "review:shots": "playwright test --config playwright.review.config.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "mongodb-memory-server": "^10.1.4"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

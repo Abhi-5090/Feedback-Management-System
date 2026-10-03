@@ -139,7 +139,7 @@ export default function TrainerComparison() {
           <EmptyState
             icon="barChart"
             title="No rated mentors yet"
-            hint="Once students submit feedback, every trainer appears here ranked on the same parameters."
+            hint="Once students submit feedback, every mentor appears here ranked on the same parameters."
           />
         ) : (
           <ul className="divide-y divide-line/60">
@@ -275,8 +275,8 @@ export default function TrainerComparison() {
         <Card
           title="Not yet rated"
           icon="info"
-          hint="These trainers have no responses yet. They are listed separately rather than ranked last, because no feedback is not the same as poor feedback."
-          subtitle={`${unrated.length} ${unrated.length === 1 ? 'trainer' : 'trainers'}`}
+          hint="These mentors have no responses yet. They are listed separately rather than ranked last, because no feedback is not the same as poor feedback."
+          subtitle={`${unrated.length} ${unrated.length === 1 ? 'mentor' : 'mentors'}`}
           actions={
             <button className="btn-ghost !px-3 !py-1.5 text-xs" onClick={() => setShowUnrated((s) => !s)}>
               {showUnrated ? 'Hide' : 'Show'}

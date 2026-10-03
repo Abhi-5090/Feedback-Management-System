@@ -13,6 +13,7 @@ import ExportButtons from '../../components/ExportButtons.jsx';
 import InfoTooltip from '../../components/InfoTooltip.jsx';
 import Icon from '../../components/Icon.jsx';
 import TableSearch, { useSearchFilter } from '../../components/TableSearch.jsx';
+import SummaryStat from '../../components/SummaryStat.jsx';
 
 /**
  * Copy state that resolves itself. A toast alone is easy to miss when the user's
@@ -76,32 +77,6 @@ function CopyField({ label, value, mono, hint }) {
   );
 }
 
-/**
- * A metric in the summary strip: number at display size, label in small caps
- * beneath it. The figure is what the operator is scanning for.
- */
-function SummaryStat({ icon, value, label, children, tooltip }) {
-  return (
-    <div className="flex items-center gap-3.5">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-600 dark:text-brand-400">
-        <Icon name={icon} size={17} />
-      </span>
-      <div className="min-w-0">
-        <p className="tnum text-display-sm leading-none text-ink">{value}</p>
-        <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
-          {children}
-          {label}
-          {tooltip && <InfoTooltip text={tooltip} />}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Live progress toward the expected head-count. Animated with scaleX rather
- * than width: width relayouts the row on every frame, scaleX is composited.
- */
 function LiveCount({ submitted, expected, live }) {
   const pct = expected > 0 ? Math.min(100, Math.round((submitted / expected) * 100)) : 0;
   const complete = expected > 0 && submitted >= expected;
@@ -663,17 +638,19 @@ export default function Batches() {
         <div className="flex flex-wrap items-center gap-x-10 gap-y-6">
           <SummaryStat
             icon="unlock"
+            tone={openCount > 0 ? 'positive' : 'neutral'}
             value={batches === null ? '—' : openCount}
             label="Open now"
-            tooltip="An open batch is accepting submissions: its passcode works and students can rate it until you lock it or the expected count is reached."
-          >
-            {openCount > 0 && (
-              <span
-                className="h-1.5 w-1.5 shrink-0 animate-pulse-ring rounded-full bg-emerald-500"
-                aria-hidden="true"
-              />
-            )}
-          </SummaryStat>
+            hint="An open batch is accepting submissions: its passcode works and students can rate it until you lock it or the expected count is reached."
+            prefix={
+              openCount > 0 ? (
+                <span
+                  className="h-1.5 w-1.5 shrink-0 animate-pulse-ring rounded-full bg-emerald-500"
+                  aria-hidden="true"
+                />
+              ) : null
+            }
+          />
 
           <div className="hidden h-10 w-px bg-line sm:block" aria-hidden="true" />
 

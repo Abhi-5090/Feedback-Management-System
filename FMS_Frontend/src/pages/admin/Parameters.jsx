@@ -7,6 +7,7 @@ import { SkeletonRows } from '../../components/Spinner.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
 import InfoTooltip from '../../components/InfoTooltip.jsx';
 import Icon from '../../components/Icon.jsx';
+import SummaryStat from '../../components/SummaryStat.jsx';
 
 /**
  * Reorder control. Two stacked chevrons rather than drag-and-drop: the list is
@@ -22,39 +23,17 @@ function ReorderButton({ dir, label, disabled, onClick }) {
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="focus-ring grid h-6 w-7 place-items-center rounded-md text-subtle transition-colors duration-150 ease-out hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-25"
+      /* text-muted, not text-subtle. At subtle weight these chevrons were
+         almost invisible on the dark surface — a control you have to hunt for
+         is a control that does not work. Disabled stays genuinely faint,
+         because "you cannot move row 1 up" is information worth showing. */
+      className="focus-ring grid h-7 w-7 place-items-center rounded-md text-muted transition-colors duration-150 ease-out hover:bg-surface-2 hover:text-ink disabled:pointer-events-none disabled:opacity-30"
     >
-      <Icon name={dir === 'up' ? 'chevronUp' : 'chevronDown'} size={13} strokeWidth={2} />
+      <Icon name={dir === 'up' ? 'chevronUp' : 'chevronDown'} size={14} strokeWidth={2.25} />
     </button>
   );
 }
 
-/**
- * A metric in the summary strip: the number carries display weight, the label
- * sits under it in small caps. The eye lands on the figure, not the word.
- */
-function SummaryStat({ icon, value, label, tone = 'ink', tooltip }) {
-  return (
-    <div className="flex items-center gap-3.5">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-500/12 text-brand-600 dark:text-brand-400">
-        <Icon name={icon} size={17} />
-      </span>
-      <div className="min-w-0">
-        <p
-          className={`tnum text-display-sm leading-none ${
-            tone === 'rose' ? 'text-rose-600 dark:text-rose-400' : tone === 'subtle' ? 'text-subtle' : 'text-ink'
-          }`}
-        >
-          {value}
-        </p>
-        <p className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted">
-          {label}
-          {tooltip && <InfoTooltip text={tooltip} />}
-        </p>
-      </div>
-    </div>
-  );
-}
 
 export default function Parameters() {
   const toast = useToast();
@@ -143,7 +122,7 @@ export default function Parameters() {
             value={params === null ? '—' : activeCount}
             label="Active"
             tone={blocked ? 'rose' : 'ink'}
-            tooltip="Students must give a 1–5 rating to every active parameter before they can submit. Deactivated ones are hidden from the form but kept on past feedback."
+            hint="Students must give a 1–5 rating to every active parameter before they can submit. Deactivated ones are hidden from the form but kept on past feedback."
           />
 
           <div className="hidden h-10 w-px bg-line sm:block" aria-hidden="true" />
@@ -152,7 +131,7 @@ export default function Parameters() {
             icon="eyeOff"
             value={params === null ? '—' : inactiveCount}
             label="Deactivated"
-            tone="subtle"
+            valueTone="muted"
           />
 
           {!blocked && total > 0 && (
@@ -193,7 +172,7 @@ export default function Parameters() {
         ) : params.length === 0 ? (
           <EmptyState
             title="No parameters yet"
-            hint="Add the rating dimensions students will score — things like content clarity, pace, or trainer knowledge."
+            hint="Add the rating dimensions students will score — things like content clarity, pace, or subject knowledge."
             icon={<Icon name="sliders" size={22} className="text-muted" />}
             action={
               <button className="btn-primary" onClick={openCreate}>

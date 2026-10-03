@@ -44,7 +44,7 @@ export default function ThankYou({ result, batchName }) {
     ? 'Feedback was already submitted from this device for this session. Each device can submit once.'
     : capReached
       ? 'This session has already collected all of its expected responses. Thanks for showing up!'
-      : 'Your feedback has been recorded anonymously. It helps your trainer make the next session even better.';
+      : 'Your feedback has been recorded anonymously. It helps your mentors make the next session even better.';
   const icon = duplicate ? 'checkCircle' : capReached ? 'users' : 'sparkle';
 
   const tone = success

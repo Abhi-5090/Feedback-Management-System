@@ -210,6 +210,32 @@ body {
                 background-color var(--d-hover) ease;
   }
   textarea.input { @apply rounded-2xl; }
+
+  /* ── Native selects ────────────────────────────────────────────────────────
+     A <select> ignores background-color until `appearance` is reset, so every
+     one in the app was drawing OS chrome and ignoring the theme entirely — a
+     light grey control sitting in the middle of the dark UI, on nine screens.
+
+     The element stays NATIVE. The OS dropdown is the right one on touch, and
+     it is keyboard- and screen-reader-correct for free; only the closed-state
+     chrome is ours. Styling the control itself rather than wrapping it means
+     every existing `<select className="input">` is fixed without touching any
+     markup. */
+  select.input {
+    @apply appearance-none pr-10;
+    background-image: var(--chevron);
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem 1rem;
+    --chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  }
+  /* A slate-400 arrow, because the slate-500 one disappears into a dark
+     surface. Two URIs rather than a filter: inverting would also invert the
+     focus ring's inherited colour on some engines. */
+  .dark select.input {
+    --chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  }
+  select.input::-ms-expand { display: none; }
   .input:focus {
     @apply border-brand-500/50;
     box-shadow: 0 0 0 3px rgb(var(--ring) / 0.30);
