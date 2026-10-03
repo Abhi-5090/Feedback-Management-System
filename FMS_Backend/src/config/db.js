@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { logger } from './logger.js';
 import { env } from './env.js';
 
 let transactionsSupported = false;
@@ -45,8 +46,7 @@ export async function connectDB(uri = env.mongoUri) {
     transactionsSupported = false;
   }
 
-  // eslint-disable-next-line no-console
-  console.log(
+  logger.info(
     `[db] connected (${mongoose.connection.host}) — transactions: ${
       transactionsSupported ? 'enabled' : 'unavailable (standalone) → ordered-write fallback'
     }, pool ${perProcessPool}${workers > 1 ? ` (${env.mongoMaxPoolSize} shared across ${workers} workers)` : ''}`

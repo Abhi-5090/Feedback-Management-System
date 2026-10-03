@@ -4,8 +4,13 @@ import { startDigestScheduler, stopDigestScheduler } from './services/digestServ
 import { startKeepAlive, stopKeepAlive } from './services/keepAlive.js';
 import { warnIfMailUnconfigured } from './services/emailService.js';
 import { env } from './config/env.js';
+import { logger } from './config/logger.js';
+import { initSentry, captureException } from './config/sentry.js';
 
 async function start() {
+  // Before connectDB: a failure to reach Atlas is exactly the kind of startup
+  // error that should be reported rather than only printed.
+  await initSentry();
   await connectDB();
 
   /* Only ONE worker schedules digests. Four workers each running an hourly
@@ -24,8 +29,7 @@ async function start() {
 
   const server = app.listen(env.port, () => {
     const who = process.env.WORKER_INDEX ? ` worker#${process.env.WORKER_INDEX} pid ${process.pid}` : '';
-    // eslint-disable-next-line no-console
-    console.log(`[api] listening on http://localhost:${env.port}  (${env.nodeEnv})${who}`);
+      logger.info({ port: env.port, env: env.nodeEnv, worker: process.env.WORKER_INDEX || null, commit: env.commit || undefined }, `listening on :${env.port}${who}`);
   });
 
   /* Keep-alive tuning for life behind a load balancer. If the server closes an
@@ -50,7 +54,7 @@ async function start() {
   const shutdown = async (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[api] ${signal} received — draining connections…`);
+    logger.info({ signal }, 'shutdown signal received — draining connections');
 
     stopDigestScheduler();
     stopKeepAlive();
@@ -61,8 +65,8 @@ async function start() {
     const timeout = new Promise((resolve) => setTimeout(resolve, 10_000).unref?.());
     await Promise.race([closed, timeout]);
 
-    await disconnectDB().catch((err) => console.error('[api] db close failed:', err.message));
-    console.log('[api] shutdown complete');
+    await disconnectDB().catch((err) => logger.error({ err: err.message }, 'database close failed'));
+    logger.info('shutdown complete');
     process.exit(0);
   };
 
@@ -73,7 +77,8 @@ async function start() {
      and exit so the supervisor restarts a clean one, rather than serving
      requests from a half-broken instance. */
   process.on('unhandledRejection', (err) => {
-    console.error('[api] unhandled rejection:', err);
+    logger.fatal({ err: err?.message, stack: err?.stack }, 'unhandled rejection');
+  captureException(err, { phase: 'unhandledRejection' });
     shutdown('unhandledRejection');
   });
 
@@ -81,7 +86,7 @@ async function start() {
 }
 
 start().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('[api] failed to start:', err);
+  logger.fatal({ err: err?.message, stack: err?.stack }, 'failed to start');
+  captureException(err, { phase: 'startup' });
   process.exit(1);
 });

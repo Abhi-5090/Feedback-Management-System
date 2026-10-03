@@ -7,6 +7,8 @@ import { env, isProd } from './config/env.js';
 import { publicLimiter } from './middleware/rateLimit.js';
 import { hardenQuery } from './middleware/hardenQuery.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
+import { requestContext } from './middleware/requestContext.js';
+import { metricsMiddleware, metricsHandler } from './middleware/metrics.js';
 
 import authRoutes from './routes/authRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
@@ -40,6 +42,12 @@ export function createApp() {
    * parse anything an attacker controls.
    */
   app.set('query parser', 'simple');
+
+  /* FIRST, before anything that can fail: every later log line, every error
+     report and every metric needs the request id, so nothing may run ahead of
+     it — including helmet, whose own failures would otherwise be unattributed. */
+  app.use(requestContext);
+  app.use(metricsMiddleware);
 
   app.use(helmet());
 
@@ -93,6 +101,10 @@ export function createApp() {
     // Set at process start, so it also reveals a service that never restarted.
     startedAt: new Date().toISOString(),
   };
+
+  /* Operational endpoints. /api/metrics sits beside health rather than under a
+     feature route because it describes the PROCESS, not the domain. */
+  app.get('/api/metrics', metricsHandler);
 
   app.get('/api/health', (_req, res) =>
     res.json({

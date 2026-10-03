@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import Icon from './Icon.jsx';
+import { reportError } from '../lib/reporting.js';
 
 /**
  * Is this error a stale code-split chunk rather than a bug?
@@ -101,6 +102,9 @@ export default class ErrorBoundary extends Component {
     // Keep it in the console for whoever is debugging; the UI stays friendly.
     // eslint-disable-next-line no-console
     console.error('[app] render error', error, info?.componentStack);
+    /* And report it, so a blank page does not depend on someone telling us.
+       No-op unless VITE_SENTRY_DSN was set at build time. */
+    reportError(error, { componentStack: info?.componentStack });
   }
 
   render() {

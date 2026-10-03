@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { log } from '../config/logger.js';
 import jwt from 'jsonwebtoken';
 import { Batch } from '../models/Batch.js';
 import { Class } from '../models/Class.js';
@@ -340,7 +341,7 @@ export const submitFeedback = asyncHandler(async (req, res) => {
     ).catch((err) => {
       // Losing a slot is survivable (one fewer response accepted) and must
       // never mask the original failure, so this is logged, not thrown.
-      console.error('[feedback] could not release a claimed slot:', err.message);
+      log().error({ err: err.message }, 'could not release a claimed submission slot');
     });
 
   /* ── (7b) WRITE — device lock + one Feedback per class ────────────────────
@@ -392,7 +393,7 @@ export const submitFeedback = asyncHandler(async (req, res) => {
        earlier submission and deleting it would UNDO their protection. */
     if (!useTxn && deviceReliable && err.code !== 11000) {
       await DeviceLock.deleteOne({ batch: batch._id, signatureHash }).catch((e) =>
-        console.error('[feedback] could not release an orphaned device lock:', e.message)
+        log().error({ err: e.message }, 'could not release an orphaned device lock')
       );
     }
 

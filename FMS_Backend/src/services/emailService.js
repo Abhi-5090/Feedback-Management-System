@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { logger } from '../config/logger.js';
 import { env, isProd, isTest } from '../config/env.js';
 
 /**
@@ -53,7 +54,7 @@ function getTransport() {
 export function warnIfMailUnconfigured() {
   if (isTest) return;
   if (env.smtp.host && env.smtp.user) {
-    console.log(`[mail] SMTP configured — ${env.smtp.host}:${env.smtp.port} as ${env.smtp.user}`);
+    logger.info({ host: env.smtp.host, port: env.smtp.port, user: env.smtp.user }, 'SMTP configured');
     return;
   }
   const lines = [
@@ -73,7 +74,7 @@ export function warnIfMailUnconfigured() {
     '  └─────────────────────────────────────────────────────────────────┘',
     '',
   ];
-  console.warn(isProd ? lines.join('\n') : '[mail] not configured — messages are printed to this console only');
+  logger.warn(isProd ? lines.join(' ') : 'mail not configured — messages are logged, not delivered');
 }
 
 /** Which transport is active — surfaced in Settings so an admin can see it. */
@@ -105,7 +106,7 @@ export async function sendMail({ to, subject, html, text }) {
     }
 
     // Console fallback — print enough to complete the flow by hand.
-    console.log(
+    logger.info(
       `\n──── EMAIL (no SMTP configured — NOT SENT) ────\n To: ${to}\n Subject: ${subject}\n\n${message.text}\n───────────────────────────────────────────────\n`
     );
     /* ok:true because the CALLER should not fail — a created trainer must not
@@ -115,7 +116,7 @@ export async function sendMail({ to, subject, html, text }) {
     return { ok: true, mode: 'console', delivered: false };
   } catch (err) {
     // Never surface delivery failure to the caller's happy path.
-    console.error('[mail] delivery failed:', err.message);
+    logger.error({ err: err.message }, 'mail delivery failed');
     return { ok: false, delivered: false, error: err.message };
   }
 }

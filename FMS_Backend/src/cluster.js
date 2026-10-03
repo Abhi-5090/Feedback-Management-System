@@ -39,6 +39,7 @@ import cluster from 'node:cluster';
 import os from 'node:os';
 import process from 'node:process';
 import { installPrimaryRateLimitHub } from './middleware/clusterRateStore.js';
+import { logger } from './config/logger.js';
 
 const cpus = os.availableParallelism?.() ?? os.cpus().length;
 const requested = parseInt(process.env.WEB_CONCURRENCY || '', 10);
@@ -55,7 +56,7 @@ if (cluster.isPrimary) {
   let fastCrashes = 0;
   let shuttingDown = false;
 
-  console.log(`[cluster] primary ${process.pid} starting ${WORKERS} worker(s) on ${cpus} core(s)`);
+  logger.info({ pid: process.pid, workers: WORKERS, cores: cpus }, 'cluster primary starting workers');
   installPrimaryRateLimitHub();
 
   const fork = (index) => {
@@ -72,25 +73,25 @@ if (cluster.isPrimary) {
   for (let i = 0; i < WORKERS; i++) fork(i + 1);
 
   cluster.on('online', (worker) =>
-    console.log(`[cluster] worker ${worker.process.pid} (#${worker.workerIndex}) online`)
+    logger.info({ pid: worker.process.pid, worker: worker.workerIndex }, 'worker online')
   );
 
   cluster.on('exit', (worker, code, signal) => {
     if (shuttingDown) return;
 
     const lifetime = Date.now() - worker.startedAt;
-    console.error(
-      `[cluster] worker ${worker.process.pid} (#${worker.workerIndex}) exited ` +
-        `(code ${code}, signal ${signal || 'none'}) after ${lifetime}ms`
+    logger.error(
+      { pid: worker.process.pid, worker: worker.workerIndex, code, signal: signal || null, lifetimeMs: lifetime },
+      'worker exited'
     );
 
     if (lifetime < CRASH_WINDOW_MS) {
       fastCrashes += 1;
       if (fastCrashes >= MAX_FAST_CRASHES) {
-        console.error(
-          `[cluster] ${MAX_FAST_CRASHES} workers died within ${CRASH_WINDOW_MS}ms of starting — ` +
-            'this is a startup failure, not a transient crash. Check the error above ' +
-            '(bad MONGO_URI or a weak secret rejected by the boot guard are the usual causes). Exiting.'
+        logger.fatal(
+          { crashes: MAX_FAST_CRASHES, windowMs: CRASH_WINDOW_MS },
+          'workers died immediately on start — a startup failure, not a transient crash. ' +
+            'Usual causes: a bad MONGO_URI, or a weak secret rejected by the boot guard. Exiting.'
         );
         process.exit(1);
       }
@@ -105,7 +106,7 @@ if (cluster.isPrimary) {
   const shutdown = (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`[cluster] ${signal} — draining ${Object.keys(cluster.workers).length} worker(s)`);
+    logger.info({ signal, workers: Object.keys(cluster.workers).length }, 'draining workers');
 
     for (const worker of Object.values(cluster.workers)) {
       worker.process.kill(signal); // each worker drains via its own handler
@@ -113,7 +114,7 @@ if (cluster.isPrimary) {
 
     // Backstop: if a worker will not go, do not hang the deploy forever.
     const timer = setTimeout(() => {
-      console.error('[cluster] workers did not exit in 15s — forcing');
+      logger.error('workers did not exit within 15s — forcing');
       for (const worker of Object.values(cluster.workers)) worker.kill('SIGKILL');
       process.exit(1);
     }, 15_000);
@@ -123,7 +124,7 @@ if (cluster.isPrimary) {
       if (Object.keys(cluster.workers).length === 0) {
         clearInterval(check);
         clearTimeout(timer);
-        console.log('[cluster] all workers exited');
+        logger.info('all workers exited');
         process.exit(0);
       }
     }, 200);

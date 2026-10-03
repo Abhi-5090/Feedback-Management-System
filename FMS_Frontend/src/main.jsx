@@ -6,6 +6,10 @@ import { AuthProvider } from './auth/AuthContext.jsx';
 import { ThemeProvider } from './theme/ThemeContext.jsx';
 import { ToastProvider } from './components/Toast.jsx';
 import './index.css';
+import { installGlobalHandlers } from './lib/reporting.js';
+
+// Before the first render, so an error during mount is still reported.
+installGlobalHandlers();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

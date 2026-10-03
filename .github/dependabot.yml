@@ -1,0 +1,55 @@
+# ── Dependency updates ───────────────────────────────────────────────────────
+#
+# Ten advisories accumulated silently before anyone looked, three of them high
+# severity. Nothing was wrong with the dependencies when they were chosen — the
+# advisories arrived afterwards, which is the whole point: without something
+# watching, the only way to find out is to go looking.
+#
+# Grouped on purpose. Twelve separate pull requests a week gets ignored, and an
+# ignored update stream is the same as no update stream. One grouped PR per
+# ecosystem per week is a thing a person actually reviews. Security updates are
+# NOT grouped — those open immediately, on their own, so they are impossible to
+# miss in a backlog.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /FMS_Backend
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      # Majors land by deliberate upgrade, not by bot: express 5 and mongoose 9
+      # both carry migrations this codebase would need to be read for.
+      - dependency-name: express
+        update-types: [version-update:semver-major]
+      - dependency-name: mongoose
+        update-types: [version-update:semver-major]
+    labels: [dependencies, backend]
+    commit-message: { prefix: "deps(backend)" }
+
+  - package-ecosystem: npm
+    directory: /FMS_Frontend
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+    labels: [dependencies, frontend]
+    commit-message: { prefix: "deps(frontend)" }
+
+  # The workflows pin action versions too, and a stale action is a supply-chain
+  # risk in exactly the same way a stale package is.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday, time: "06:00" }
+    labels: [dependencies, ci]
+    commit-message: { prefix: "deps(ci)" }

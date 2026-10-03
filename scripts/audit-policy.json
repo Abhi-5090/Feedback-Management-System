@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "Advisories accepted with a stated reason and an expiry date.",
+    "An exception with no expiry becomes permanent by accident, so every entry",
+    "must carry one — scripts/check-audit.mjs fails the build when an exception",
+    "lapses, which forces the decision to be made again rather than inherited.",
+    "Only moderate and below may be excepted. A high or critical finding fails",
+    "the build regardless of what is written here."
+  ],
+  "exceptions": [
+    {
+      "advisory": "uuid",
+      "severity": "moderate",
+      "reason": "Missing buffer bounds check in uuid v3/v5/v6 when a `buf` argument is passed. Reached only through exceljs, which calls uuidv4() with no arguments (lib/xlsx/xform/sheet/cf-ext/cf-rule-ext-xform.js), so the vulnerable path is unreachable from this codebase. npm's suggested fix is a DOWNGRADE of exceljs from 4.4.0 to 3.4.0, which would trade an unreachable advisory for six years of unpatched spreadsheet parsing.",
+      "expires": "2027-04-01"
+    },
+    {
+      "advisory": "exceljs",
+      "severity": "moderate",
+      "reason": "Carrier of the uuid advisory above; no fixed release exists on the 4.x line. Used only to BUILD workbooks from our own data in export/excelBuilder.js — this application never parses an untrusted .xlsx, except in the trainer bulk import, which is admin-only and size-capped at 6mb.",
+      "expires": "2027-04-01"
+    }
+  ]
+}

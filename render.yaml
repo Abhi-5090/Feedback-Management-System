@@ -140,6 +140,94 @@ services:
       - key: KEEP_ALIVE_MINUTES
         value: "3"
 
+      # ── Observability ─────────────────────────────────────────────────────
+      # LOG_LEVEL drives verbosity; logs are newline-delimited JSON in
+      # production so a log drain can parse them.
+      - key: LOG_LEVEL
+        value: "info"
+      # Opt-in error tracking. Without a DSN nothing is initialised and no
+      # data leaves the process, which is the default.
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.1"
+      # /api/metrics is a Prometheus scrape target. Request counts by route
+      # are not secret, but they describe usage, and this deployment is public
+      # — so the endpoint takes a bearer token.
+      - key: METRICS_TOKEN
+        sync: false
+
+  # ── Staging ─────────────────────────────────────────────────────────────────
+  #
+  # Every change in this project's history went straight from a laptop to the
+  # service students use. CI is thorough, but no unit test catches a missing
+  # environment variable, a migration that behaves differently against real
+  # data, or an index that was never created on the live cluster. Those only
+  # show up against a deployed copy.
+  #
+  # This service is identical to production in every way EXCEPT:
+  #   - it tracks the `staging` branch, so main is never the first deploy,
+  #   - it points at a SEPARATE Atlas database (see MONGO_URI below),
+  #   - it does not keep itself awake: a staging instance that sleeps is
+  #     correct behaviour, and it would otherwise double the free-tier hours.
+  #
+  # Promote with:  git checkout staging && git merge main && git push
+  #                → verify → git checkout main && git push
+  - type: web
+    name: fms-api-staging
+    runtime: node
+    plan: starter
+    region: singapore
+    rootDir: FMS_Backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/ready
+    autoDeploy: true
+    branch: staging
+
+    envVars:
+      - key: NODE_ENV
+        value: production        # staging must run the production code path
+      - key: NODE_VERSION
+        value: "20"
+
+      # MUST be a different cluster or database name from production. Pointing
+      # staging at the live database makes it a loaded gun: the first migration
+      # you rehearse rewrites the real data, which is the exact failure this
+      # environment exists to prevent.
+      - key: MONGO_URI
+        sync: false
+
+      - key: JWT_SECRET
+        sync: false
+      - key: DEVICE_SALT
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: "none"
+      - key: CLIENT_ORIGINS
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: APP_NAME
+        value: "Feedback Management System (staging)"
+
+      # Verbose by default — staging exists to be inspected.
+      - key: LOG_LEVEL
+        value: "debug"
+      - key: SENTRY_DSN
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
+
+      # Deliberately NOT set: a staging instance is allowed to sleep.
+      # - key: KEEP_ALIVE_URL
+
+      # Digests off. Staging must never mail a real mentor.
+      - key: DIGESTS_ENABLED
+        value: "false"
+
 # ── A note on the free plan ──────────────────────────────────────────────────
 # Render's free web services sleep after ~15 minutes of inactivity and take
 # roughly 50 seconds to wake. For a feedback session that is the difference

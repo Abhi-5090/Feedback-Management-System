@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
 
 jobs:
@@ -14,6 +14,22 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check tracked files for credentials
         run: bash scripts/check-secrets.sh
+
+  # Supply chain. Separate from the test jobs on purpose: a vulnerable
+  # dependency is not a test failure, and reading "backend-tests failed" when
+  # the tests passed and an advisory landed sends you looking in the wrong file.
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Install (lockfile only — no scripts, nothing is built or run)
+        run: |
+          npm ci --ignore-scripts --prefix FMS_Backend
+          npm ci --ignore-scripts --prefix FMS_Frontend
+      - name: Audit against the policy
+        run: node scripts/check-audit.mjs
 
   backend-tests:
     runs-on: ubuntu-latest

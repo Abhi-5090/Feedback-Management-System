@@ -1,4 +1,5 @@
 import { AuditLog } from '../models/AuditLog.js';
+import { log } from '../config/logger.js';
 
 /**
  * Write an audit entry.
@@ -29,7 +30,7 @@ export function recordAudit(req, { action, entity, entityId, entityName, meta, a
     ip: req?.ip || '',
     userAgent: String(req?.headers?.['user-agent'] || '').slice(0, 200),
   }).catch((err) => {
-    console.error('[audit] write failed:', action, err.message);
+    log().error({ action, err: err.message }, 'audit write failed');
   });
 }
 

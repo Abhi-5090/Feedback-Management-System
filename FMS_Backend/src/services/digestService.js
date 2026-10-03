@@ -1,4 +1,5 @@
 import { User } from '../models/User.js';
+import { logger } from '../config/logger.js';
 import { Batch } from '../models/Batch.js';
 import { Class } from '../models/Class.js';
 import { Feedback } from '../models/Feedback.js';
@@ -158,16 +159,16 @@ export function startDigestScheduler() {
   const tick = async () => {
     try {
       const r = await runDigests();
-      if (r.sent) console.log(`[digest] sent ${r.sent} of ${r.considered}`);
+      if (r.sent) logger.info({ sent: r.sent, considered: r.considered }, 'digest run complete');
     } catch (err) {
-      console.error('[digest] run failed:', err.message);
+      logger.error({ err: err.message }, 'digest run failed');
     }
   };
 
   // Every hour; `runDigests` decides what is actually due.
   timer = setInterval(tick, 60 * 60 * 1000);
   timer.unref?.(); // never hold the process open just for the scheduler
-  console.log('[digest] scheduler started (hourly check)');
+  logger.info('digest scheduler started (hourly check)');
 }
 
 export function stopDigestScheduler() {

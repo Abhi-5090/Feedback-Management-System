@@ -118,6 +118,19 @@ export const env = {
   // cannot lock out everyone else sharing the network.
   loginMaxPerIdentity: parseInt(process.env.LOGIN_MAX_PER_IDENTITY || '20', 10),
 
+  /* ── Observability ────────────────────────────────────────────────────
+     LOG_LEVEL controls verbosity; 'info' in production, 'debug' when chasing
+     something. SENTRY_DSN is opt-in — unset, no error reporting is installed
+     and nothing leaves the process. The commit is read from Render's injected
+     variable so every log line says which build produced it. */
+  logLevel: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
+  sentryDsn: process.env.SENTRY_DSN || '',
+  sentrySampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || '0.1'),
+  metricsEnabled: process.env.METRICS_ENABLED !== 'false',
+  metricsToken: process.env.METRICS_TOKEN || '',
+  commit: (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || '').slice(0, 7),
+  branch: process.env.RENDER_GIT_BRANCH || process.env.GIT_BRANCH || '',
+
   /* Keep-alive for a free Render instance. Opt-in: unset locally and in CI, so
      nothing reaches out to the network unless a deployment asks it to. */
   keepAliveUrl: process.env.KEEP_ALIVE_URL || '',

@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { logger } from '../config/logger.js';
 
 /**
  * Keep-alive pinger for a free Render instance.
@@ -29,9 +30,8 @@ import { env } from '../config/env.js';
 let timer = null;
 let lastOk = null; // null until the first result — so the first ping always logs
 
-function log(message) {
-  // eslint-disable-next-line no-console
-  console.log(`[keepalive] ${message}`);
+function log(message, fields = {}) {
+  logger.info({ component: 'keepalive', ...fields }, message);
 }
 
 /** One ping. Never throws: a failed ping must not take the process down. */

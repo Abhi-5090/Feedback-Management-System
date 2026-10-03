@@ -1,4 +1,5 @@
 import cluster from 'node:cluster';
+import { logger } from '../config/logger.js';
 
 /**
  * A rate-limit store that is correct across clustered workers.
@@ -132,7 +133,7 @@ function ask(op, key, windowMs) {
     };
 
     const timer = setTimeout(() => {
-      console.error(`[ratelimit] primary did not answer for "${op}" — allowing the request`);
+      logger.error({ op }, 'rate-limit primary did not answer — allowing the request');
       done(null); // fail OPEN, deliberately
     }, TIMEOUT_MS);
     timer.unref?.();
