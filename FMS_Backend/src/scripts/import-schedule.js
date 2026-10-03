@@ -45,6 +45,7 @@ import { Class } from '../models/Class.js';
 import { Batch } from '../models/Batch.js';
 import { Parameter } from '../models/Parameter.js';
 import { hashPassword, generateStrongPassword } from '../utils/password.js';
+import { isMain } from '../utils/isMain.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.join(HERE, '..', 'data');
@@ -386,8 +387,10 @@ async function main() {
   process.exit(0);
 }
 
-main().catch(async (err) => {
-  console.error('[import] failed:', err);
-  await disconnectDB().catch(() => {});
-  process.exit(1);
-});
+if (isMain(import.meta.url)) {
+  main().catch(async (err) => {
+    console.error('[import] failed:', err);
+    await disconnectDB().catch(() => {});
+    process.exit(1);
+  });
+}

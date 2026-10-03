@@ -32,6 +32,7 @@
  */
 import mongoose from 'mongoose';
 import { connectDB, disconnectDB } from '../config/db.js';
+import { isMain } from '../utils/isMain.js';
 
 const DRY = process.argv.includes('--dry-run');
 const log = (...a) => console.log(DRY ? '[dry]' : '[mig]', ...a);
@@ -157,8 +158,10 @@ async function main() {
   process.exit(0);
 }
 
-main().catch(async (err) => {
-  console.error('[mig] failed:', err);
-  await disconnectDB().catch(() => {});
-  process.exit(1);
-});
+if (isMain(import.meta.url)) {
+  main().catch(async (err) => {
+    console.error('[mig] failed:', err);
+    await disconnectDB().catch(() => {});
+    process.exit(1);
+  });
+}

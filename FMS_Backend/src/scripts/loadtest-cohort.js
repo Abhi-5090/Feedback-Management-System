@@ -29,6 +29,7 @@ import { User } from '../models/User.js';
 import { Feedback } from '../models/Feedback.js';
 import { DeviceLock } from '../models/DeviceLock.js';
 import { Parameter } from '../models/Parameter.js';
+import { isMain } from '../utils/isMain.js';
 
 const arg = (name, dflt) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -260,8 +261,10 @@ async function main() {
   process.exit(consistent && serverFailures === 0 ? 0 : 1);
 }
 
-main().catch(async (err) => {
-  console.error('\n[loadtest] failed:', err.message);
-  await disconnectDB().catch(() => {});
-  process.exit(1);
-});
+if (isMain(import.meta.url)) {
+  main().catch(async (err) => {
+    console.error('\n[loadtest] failed:', err.message);
+    await disconnectDB().catch(() => {});
+    process.exit(1);
+  });
+}

@@ -33,8 +33,55 @@ import { connectDB, disconnectDB } from '../config/db.js';
 import { Batch } from '../models/Batch.js';
 import { Feedback } from '../models/Feedback.js';
 import { DeviceLock } from '../models/DeviceLock.js';
+import { isMain } from '../utils/isMain.js';
 
 const DRY = process.argv.includes('--dry-run');
+
+/**
+ * Which counters disagree with the feedback rows, and what they should be.
+ *
+ * Pulled out of main() so it can be tested. The arithmetic here decides
+ * whether a live batch starts accepting submissions again, and it ran against
+ * production with nothing verifying it:
+ *
+ *   - `submittedCount` is a denormalised copy of "how many students answered".
+ *   - A batch's true figure is the LARGEST per-class row count, not the sum: a
+ *     student submits one row per class, so a 2-class batch answered by 40
+ *     students holds 80 rows and has been answered 40 times. Summing would
+ *     double the counter and wedge the batch closed.
+ *   - A counter stuck at or above `expectedCount` makes the conditional
+ *     increment match nothing, and every submission is refused with "this
+ *     batch has reached its expected number of responses" — which reads as a
+ *     broken form rather than a stale number.
+ *
+ * @param {Array}  batches  lean Batch documents
+ * @param {Map}    answered batchId (string) -> true answered count
+ * @returns {Array<{ b: object, from: number, to: number }>}
+ */
+export function planCounterChanges(batches, answered) {
+  const changes = [];
+  for (const b of batches) {
+    const truth = answered.get(String(b._id)) || 0;
+    if ((b.submittedCount || 0) !== truth) {
+      changes.push({ b, from: b.submittedCount || 0, to: truth });
+    }
+  }
+  return changes;
+}
+
+/**
+ * The true answered count per batch, from the per-(batch,class) row counts.
+ * Exported alongside planCounterChanges because the max-not-sum rule is the
+ * part that is easy to get wrong.
+ */
+export function answeredByBatch(perBatchClass) {
+  const answered = new Map();
+  for (const row of perBatchClass) {
+    const k = String(row._id.batch);
+    answered.set(k, Math.max(answered.get(k) || 0, row.n));
+  }
+  return answered;
+}
 
 async function main() {
   await connectDB();
@@ -47,19 +94,9 @@ async function main() {
   const perBatchClass = await Feedback.aggregate([
     { $group: { _id: { batch: '$batch', class: '$class' }, n: { $sum: 1 } } },
   ]);
-  const answered = new Map(); // batchId -> students who answered
-  for (const row of perBatchClass) {
-    const k = String(row._id.batch);
-    answered.set(k, Math.max(answered.get(k) || 0, row.n));
-  }
+  const answered = answeredByBatch(perBatchClass);
 
-  const changes = [];
-  for (const b of batches) {
-    const truth = answered.get(String(b._id)) || 0;
-    if ((b.submittedCount || 0) !== truth) {
-      changes.push({ b, from: b.submittedCount || 0, to: truth });
-    }
-  }
+  const changes = planCounterChanges(batches, answered);
 
   console.log(`\nBatches: ${batches.length} · counters out of step: ${changes.length}`);
   if (changes.length) {
@@ -155,8 +192,10 @@ async function main() {
   process.exit(0);
 }
 
-main().catch(async (err) => {
-  console.error('[reconcile] failed:', err.message);
-  await disconnectDB().catch(() => {});
-  process.exit(1);
-});
+if (isMain(import.meta.url)) {
+  main().catch(async (err) => {
+    console.error('[reconcile] failed:', err.message);
+    await disconnectDB().catch(() => {});
+    process.exit(1);
+  });
+}

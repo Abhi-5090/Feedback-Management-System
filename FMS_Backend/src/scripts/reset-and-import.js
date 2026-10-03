@@ -28,6 +28,8 @@ import { fileURLToPath } from 'node:url';
 import mongoose from 'mongoose';
 import { connectDB, disconnectDB } from '../config/db.js';
 import { env } from '../config/env.js';
+import { assertDestructiveAllowed, DestructiveRefusal } from '../utils/destructiveGuard.js';
+import { isMain } from '../utils/isMain.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BACKUP_DIR = path.join(HERE, '..', '..', 'backups');
@@ -115,6 +117,27 @@ async function main() {
   console.log(`\n  Backup written: ${file}`);
   console.log('  (Contains password HASHES, not passwords. Keep it private — it is gitignored.)');
 
+  /* The target has to be NAMED, not just agreed to. `--yes` is a flag you can
+     add from muscle memory; the database name is a fact you have to go and
+     check. See utils/destructiveGuard.js. Checked here rather than at the top
+     so the plan and the backup still happen on a refused run — you learn what
+     WOULD have been deleted, and keep the backup. */
+  if (YES && !DRY) {
+    try {
+      const { database } = assertDestructiveAllowed({
+        uri: process.env.MONGO_URI,
+        action: `delete ${total} document(s) across ${WIPE.length} collections`,
+      });
+      console.log(`\n  Target confirmed: ${database}`);
+    } catch (err) {
+      if (!(err instanceof DestructiveRefusal)) throw err;
+      console.error(`\n  ${err.message}\n`);
+      console.error('  Nothing was deleted. The backup above still holds the current contents.');
+      await disconnectDB();
+      process.exit(2);
+    }
+  }
+
   if (!YES) {
     console.log('\n  Nothing was deleted. Re-run with --yes to proceed.');
     if (DRY) console.log('  (--dry-run also stops here by design.)');
@@ -188,9 +211,11 @@ async function main() {
   process.exit(0);
 }
 
-main().catch(async (err) => {
-  console.error('\n[reset] FAILED:', err.message);
-  console.error('[reset] The backup file (if written above) still holds the previous contents.');
-  await disconnectDB().catch(() => {});
-  process.exit(1);
-});
+if (isMain(import.meta.url)) {
+  main().catch(async (err) => {
+    console.error('\n[reset] FAILED:', err.message);
+    console.error('[reset] The backup file (if written above) still holds the previous contents.');
+    await disconnectDB().catch(() => {});
+    process.exit(1);
+  });
+}

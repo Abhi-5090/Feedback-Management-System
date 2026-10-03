@@ -10,6 +10,7 @@ import { env } from './config/env.js';
 import { User } from './models/User.js';
 import { Parameter } from './models/Parameter.js';
 import { hashPassword, generateStrongPassword } from './utils/password.js';
+import { isMain } from './utils/isMain.js';
 
 const DEFAULT_PARAMETERS = [
   'Content clarity',
@@ -73,8 +74,10 @@ async function main() {
   process.exit(0);
 }
 
-main().catch(async (err) => {
-  console.error('[seed] failed:', err);
-  await disconnectDB().catch(() => {});
-  process.exit(1);
-});
+if (isMain(import.meta.url)) {
+  main().catch(async (err) => {
+    console.error('[seed] failed:', err);
+    await disconnectDB().catch(() => {});
+    process.exit(1);
+  });
+}

@@ -15,6 +15,7 @@
  */
 import mongoose from 'mongoose';
 import { connectDB, disconnectDB } from '../config/db.js';
+import { isMain } from '../utils/isMain.js';
 
 async function main() {
   await connectDB();
@@ -81,8 +82,10 @@ async function main() {
   process.exit(0);
 }
 
-main().catch(async (err) => {
-  console.error('[migrate] failed:', err);
-  await disconnectDB().catch(() => {});
-  process.exit(1);
-});
+if (isMain(import.meta.url)) {
+  main().catch(async (err) => {
+    console.error('[migrate] failed:', err);
+    await disconnectDB().catch(() => {});
+    process.exit(1);
+  });
+}
