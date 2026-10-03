@@ -10,5 +10,5 @@ const nav = [
 ];
 
 export default function TrainerLayout() {
-  return <AppShell brand="Feedback" roleLabel="Trainer" nav={nav} />;
+  return <AppShell brand="Feedback" roleLabel="Mentor" nav={nav} />;
 }

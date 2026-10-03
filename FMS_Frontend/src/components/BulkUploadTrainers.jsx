@@ -456,8 +456,8 @@ function SummaryTile({ label, value, icon, tone }) {
       <span className={`grid h-8 w-8 place-items-center rounded-lg ${tones[tone]}`}>
         <Icon name={icon} size={15} />
       </span>
-      <p className="mt-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>
-      <p className="tnum text-display-sm text-ink">{value}</p>
+      <p className="tnum mt-2.5 text-display-sm leading-none text-ink">{value}</p>
+      <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>
     </div>
   );
 }

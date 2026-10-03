@@ -8,6 +8,7 @@ import PageHeader from '../components/PageHeader.jsx';
 import { SkeletonBlock } from '../components/Spinner.jsx';
 import Icon from '../components/Icon.jsx';
 import InfoTooltip from '../components/InfoTooltip.jsx';
+import SummaryStat, { SummaryStrip } from '../components/SummaryStat.jsx';
 
 /**
  * Feedbacks — one card per SESSION, a session being a (batch, subject) pair.
@@ -227,17 +228,22 @@ export default function Feedbacks() {
 
       {/* ── Totals for the current filter ───────────────────────────────── */}
       {totals && (
-        <div className="panel divide-y divide-line sm:grid sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-          <Fig label="Batches" value={totals.batches} icon="ticket" sub={`${totals.sessions} subject sessions`} />
-          <Fig label="Collecting now" value={totals.open} icon="unlock" />
-          <Fig label="Responses" value={totals.responses.toLocaleString()} icon="inbox" />
-          <Fig
+        <SummaryStrip>
+          <SummaryStat label="Batches" value={totals.batches} icon="ticket" sub={`${totals.sessions} subject sessions`} />
+          <SummaryStat
+            label="Collecting now"
+            value={totals.open}
+            icon="unlock"
+            tone={totals.open > 0 ? 'positive' : 'neutral'}
+          />
+          <SummaryStat label="Responses" value={totals.responses.toLocaleString()} icon="inbox" />
+          <SummaryStat
             label="Average"
             value={totals.average == null ? '—' : totals.average.toFixed(2)}
             icon="star"
             sub={totals.average == null ? 'no responses yet' : 'out of 5'}
           />
-        </div>
+        </SummaryStrip>
       )}
 
       {/* ── Filters ─────────────────────────────────────────────────────── */}
@@ -573,17 +579,4 @@ function Field({ label, id, children }) {
   );
 }
 
-function Fig({ label, value, sub, icon }) {
-  return (
-    <div className="flex items-start gap-3 p-4">
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-muted">
-        <Icon name={icon} size={15} />
-      </span>
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>
-        <p className="tnum mt-0.5 text-xl font-bold text-ink">{value}</p>
-        {sub && <p className="mt-0.5 truncate text-[11px] text-subtle">{sub}</p>}
-      </div>
-    </div>
-  );
-}
+

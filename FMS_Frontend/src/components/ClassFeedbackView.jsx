@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useToast } from './Toast.jsx';
 import Card, { EmptyState } from './Card.jsx';
-import StatTile from './StatTile.jsx';
+import StatTile, { ratingTone } from './StatTile.jsx';
 import { SkeletonBlock } from './Spinner.jsx';
 import ExportButtons from './ExportButtons.jsx';
 import CommentsFeed from './CommentsFeed.jsx';
@@ -135,24 +135,24 @@ export default function ClassFeedbackView({
           below says what they are made of — a subject taught to two different
           year groups has one average and two very different realities. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Responses" value={data.feedbackCount} icon="inbox" accent="amber" delay={0}
+        <StatTile label="Responses" value={data.feedbackCount} icon="inbox" tone="neutral" delay={0}
           sub={
             data.breakdown
               ? `across ${data.breakdown.consolidated.batchCount} batch${data.breakdown.consolidated.batchCount === 1 ? '' : 'es'}`
               : undefined
           }
           hint="Total anonymous submissions for this subject, every cohort combined." />
-        <StatTile label="Overall avg" value={data.overallAverage.toFixed(2)} icon="star" accent="rose" delay={50}
+        <StatTile label="Overall avg" value={data.overallAverage.toFixed(2)} icon="star" tone={ratingTone(data.overallAverage)} delay={50}
           sub="out of 5"
           hint="Mean of every star across all parameters and all cohorts. The breakdown below separates them — cohorts of the same subject often differ by more than a point." />
         <StatTile
           label="Year groups"
           value={data.breakdown?.consolidated.yearGroupCount ?? 1}
           icon="graduation"
-          accent="violet"
+          tone="neutral"
           delay={100}
           hint="How many year groups take this subject. Their feedback is kept separate below because it is not comparable." />
-        <StatTile label="Parameters" value={data.perParameter.length} icon="sliders" accent="sky" delay={150}
+        <StatTile label="Parameters" value={data.perParameter.length} icon="sliders" tone="neutral" delay={150}
           hint="Rating dimensions with at least one response." />
       </div>
 

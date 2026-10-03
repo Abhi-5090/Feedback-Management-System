@@ -406,8 +406,17 @@ export default function Settings() {
                   digest.enabled ? 'bg-brand-600' : 'bg-line'
                 }`}
               >
+                {/* `left-0` is load-bearing. Without it the knob is absolutely
+                    positioned with auto offsets, so it falls at its STATIC
+                    position — which, inside a button that centres its content,
+                    is roughly the middle — and the translate values below are
+                    then measured from there instead of from the left edge. The
+                    result was a switch that rendered in the ON position in both
+                    states, with only the track colour telling the truth. A
+                    control that lies about its own state is worse than one that
+                    is merely ugly. */}
                 <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                  className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${
                     digest.enabled ? 'translate-x-[1.375rem]' : 'translate-x-0.5'
                   }`}
                 />

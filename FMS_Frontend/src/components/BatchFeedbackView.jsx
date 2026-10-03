@@ -3,7 +3,7 @@ import { AnalyticsAPI } from '../api/endpoints.js';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useToast } from './Toast.jsx';
 import Card, { EmptyState } from './Card.jsx';
-import StatTile from './StatTile.jsx';
+import StatTile, { ratingTone } from './StatTile.jsx';
 import { SkeletonBlock } from './Spinner.jsx';
 import ExportButtons from './ExportButtons.jsx';
 import CommentsFeed from './CommentsFeed.jsx';
@@ -291,13 +291,13 @@ export default function BatchFeedbackView({ fetcher, exportPath, exportName, bac
 
       {/* Batch-level KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Classes" value={b?.classCount || 0} icon="book" accent="violet" delay={0}
+        <StatTile label="Classes" value={b?.classCount || 0} icon="book" tone="neutral" delay={0}
           hint="Classes included in this batch. Each is rated separately below." />
-        <StatTile label="Responses" value={data.feedbackCount} icon="inbox" accent="amber" delay={50}
+        <StatTile label="Responses" value={data.feedbackCount} icon="inbox" tone="neutral" delay={50}
           hint="Total anonymous rows across every class in this batch." />
-        <StatTile label="Overall avg" value={data.overallAverage.toFixed(2)} icon="star" accent="rose" delay={100}
+        <StatTile label="Overall avg" value={data.overallAverage.toFixed(2)} icon="star" tone={ratingTone(data.overallAverage)} delay={100}
           sub="out of 5" hint="Mean of every star across all classes and parameters in this batch." />
-        <StatTile label="Students" value={b?.submittedCount || 0} icon="users" accent="emerald" delay={150}
+        <StatTile label="Students" value={b?.submittedCount || 0} icon="users" tone="neutral" delay={150}
           hint="Distinct submissions. One student rates every class in a single submission." />
       </div>
 

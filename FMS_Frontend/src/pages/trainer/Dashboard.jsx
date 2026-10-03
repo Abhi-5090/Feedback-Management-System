@@ -4,7 +4,7 @@ import { AnalyticsAPI, DashboardAPI } from '../../api/endpoints.js';
 import { usePolling } from '../../hooks/usePolling.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useToast } from '../../components/Toast.jsx';
-import StatTile from '../../components/StatTile.jsx';
+import StatTile, { ratingTone } from '../../components/StatTile.jsx';
 import RoleSplitPanel from '../../components/RoleSplitPanel.jsx';
 import Card from '../../components/Card.jsx';
 import Hero from '../../components/Hero.jsx';
@@ -85,17 +85,9 @@ export default function TrainerDashboard() {
         eyebrow="Mentor workspace"
         title={`Welcome back, ${user?.name?.split(' ')[0] || 'there'}`}
         subtitle="Everything here is scoped to the classes assigned to you — never anyone else's data."
-        metricLabel="My rating"
-        metric={k ? k.overallAverage.toFixed(2) : '—'}
-        metricSuffix="/ 5"
-        stats={
-          k
-            ? [
-                { label: 'Responses', value: k.feedbackCount },
-                { label: 'Classes', value: k.myClasses },
-              ]
-            : []
-        }
+        /* The same three numbers the tiles below carry, in a second visual
+           style — see the note on the admin hero. The greeting is the point
+           here; the tiles own the figures. */
         actions={<ExportButtons path="/export/trainer/me" baseName="my_feedback" />}
       />
 
@@ -104,15 +96,15 @@ export default function TrainerDashboard() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile label="I deliver" value={k.mainClasses ?? k.myClasses} icon="user-check" accent="sky" delay={0}
+            <StatTile label="I deliver" value={k.mainClasses ?? k.myClasses} icon="user-check" tone="neutral" delay={0}
               sub="as main mentor"
               hint="Classes you are the main mentor for — the ones you deliver." />
-            <StatTile label="I assist on" value={k.supportClasses ?? 0} icon="users" accent="violet" delay={50}
+            <StatTile label="I assist on" value={k.supportClasses ?? 0} icon="users" tone="neutral" delay={50}
               sub="as support mentor"
               hint="Classes you support. Another mentor delivers these; you assist the session." />
-            <StatTile label="Responses" value={k.feedbackCount} icon="inbox" accent="amber" delay={100}
+            <StatTile label="Responses" value={k.feedbackCount} icon="inbox" tone="neutral" delay={100}
               hint="Anonymous responses across every class you are staffed on, in either role." />
-            <StatTile label="My avg rating" value={k.overallAverage.toFixed(2)} icon="star" accent="rose" delay={150}
+            <StatTile label="My avg rating" value={k.overallAverage.toFixed(2)} icon="star" tone={ratingTone(k.overallAverage)} delay={150}
               sub="out of 5"
               hint="Mean of all stars across every rated parameter, both roles combined. The split below separates them." />
           </div>

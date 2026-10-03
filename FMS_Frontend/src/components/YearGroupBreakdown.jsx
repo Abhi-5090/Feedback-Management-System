@@ -289,10 +289,13 @@ function OneYear({ group, basePath }) {
   );
 }
 
+/* A boxed figure rather than a strip row, so it keeps its own layout — but
+   the ORDER is the app-wide one: the number is the content, the label is its
+   caption. See components/SummaryStat.jsx. */
 const Fig = ({ label, value, sub }) => (
   <div className="rounded-xl border border-line bg-surface-2/40 p-3">
-    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>
-    <p className="tnum mt-0.5 text-xl font-bold text-ink">{value}</p>
+    <p className="tnum text-xl font-bold text-ink">{value}</p>
+    <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted">{label}</p>
     {sub && <p className="mt-0.5 text-[11px] text-subtle">{sub}</p>}
   </div>
 );
