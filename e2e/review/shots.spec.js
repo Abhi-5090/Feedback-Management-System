@@ -12,7 +12,7 @@ const shot = (p) => join(HERE, '..', 'shots', p);
 const ADMIN_PAGES = [
   ['', 'dashboard'], ['feedbacks', 'feedbacks'], ['trainers', 'mentors'],
   ['compare', 'compare'], ['cohorts', 'cohorts'], ['classes', 'classes'],
-  ['parameters', 'parameters'], ['batches', 'batches'], ['audit', 'audit'],
+  ['parameters', 'parameters'], ['batches', 'batches'], ['phases', 'phases'], ['audit', 'audit'],
   ['settings', 'settings'],
 ];
 

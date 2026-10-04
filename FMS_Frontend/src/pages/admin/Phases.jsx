@@ -14,7 +14,14 @@ import InfoTooltip from '../../components/InfoTooltip.jsx';
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
-const day = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
+/* Formatted in UTC, because the windows ARE UTC — a phase covering September
+   runs from 1 Sep 00:00Z to 1 Oct 00:00Z.
+   Rendered in local time instead, the inclusive last day (30 Sep 23:59:59.999Z)
+   becomes 1 October for any reader east of Greenwich, so an Indian admin saw
+   "1 Sept – 1 Oct" and reasonably read it as including October. The boundary
+   is the one value in this feature that must not drift by a timezone. */
+const day = (d) =>
+  d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
 /* The stored end is exclusive; a person reading "ends 1 November" would think
    November is included. Always show the last day actually covered. */
 const lastDay = (endsAt) => day(new Date(new Date(endsAt).getTime() - 1));
@@ -151,7 +158,7 @@ export default function Phases() {
         eyebrow="Collection"
         title="Phases"
         subtitle="Each phase is one round of collection. Name the month you are collecting in, and every response that arrives lands in it — so Phase 1 and Phase 2 stay separate and can be compared."
-        actions={<button className="btn-primary" onClick={openNew}><Icon name="plus" size={15} /> New phase</button>}
+        action={<button className="btn-primary" onClick={openNew}><Icon name="plus" size={15} /> New phase</button>}
       />
 
       <SummaryStrip>

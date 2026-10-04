@@ -9,6 +9,7 @@ import { User } from '../FMS_Backend/src/models/User.js';
 import { Class } from '../FMS_Backend/src/models/Class.js';
 import { Batch } from '../FMS_Backend/src/models/Batch.js';
 import { Parameter } from '../FMS_Backend/src/models/Parameter.js';
+import { Phase } from '../FMS_Backend/src/models/Phase.js';
 import { hashPassword } from '../FMS_Backend/src/utils/password.js';
 
 export const ADMIN = { email: 'e2e-admin@test.local', password: 'e2e-admin-pass-2026' };
@@ -17,7 +18,17 @@ export const PARAMETERS = ['Content clarity', 'Pace of the session', 'Overall ex
 export async function seedE2E() {
   await Promise.all([
     User.deleteMany({}), Class.deleteMany({}), Batch.deleteMany({}), Parameter.deleteMany({}),
+    Phase.deleteMany({}),
   ]);
+
+  /* One closed phase, so the page is reviewed with content rather than in its
+     empty state — the empty state is already covered by a unit test. */
+  const now = new Date();
+  await Phase.create({
+    name: 'Phase 1 — September 2026', code: 'P1',
+    startsAt: new Date(Date.UTC(2026, 8, 1)), endsAt: new Date(Date.UTC(2026, 9, 1)),
+    status: 'closed', closedAt: now, notes: 'First collection after the rollout.',
+  });
 
   await Parameter.insertMany(PARAMETERS.map((label, order) => ({ label, order })));
 
