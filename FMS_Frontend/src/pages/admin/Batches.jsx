@@ -14,6 +14,7 @@ import InfoTooltip from '../../components/InfoTooltip.jsx';
 import Icon from '../../components/Icon.jsx';
 import TableSearch, { useSearchFilter } from '../../components/TableSearch.jsx';
 import SummaryStat from '../../components/SummaryStat.jsx';
+import RosterDriftPanel from '../../components/RosterDriftPanel.jsx';
 
 /**
  * Copy state that resolves itself. A toast alone is easy to miss when the user's
@@ -631,6 +632,10 @@ export default function Batches() {
           </button>
         }
       />
+
+      {/* Shown above everything: a mentor telling you they cannot see their
+          feedback is a support ticket, and this is the answer to it. */}
+      <RosterDriftPanel />
 
       {/* Operational summary. Open batches are the only ones actively taking
           submissions, so that count carries the live indicator. */}

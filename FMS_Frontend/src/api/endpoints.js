@@ -67,6 +67,10 @@ export const BatchesAPI = {
   // Per-round device/response counts, so re-running a cohort is visible.
   rounds: (id) => api.get(`/batches/${id}/rounds`).then((r) => r.data),
   archive: (id, archived) => api.patch(`/batches/${id}/archive`, { archived }).then((r) => r.data),
+  /* Sessions whose feedback is stamped with a different mentor team from the
+     one the batch now names — see rosterDriftService on the server. */
+  rosterDrift: (params = {}) => api.get('/batches/roster-drift', { params }).then((r) => r.data),
+  reattribute: (id, classId) => api.post(`/batches/${id}/reattribute`, { classId }).then((r) => r.data),
 };
 
 export const PhasesAPI = {

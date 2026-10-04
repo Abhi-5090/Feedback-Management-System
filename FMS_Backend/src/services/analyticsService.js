@@ -805,16 +805,46 @@ export async function sessionCards({ scopeTrainerId, role, yearGroup, classId, f
     if (role !== 'main') rosterOr.push({ supportTrainers: id });
   }
 
+  const feedbackScope = buildFeedbackMatch({ scopeTrainerId, role, from, to });
+
+  /* ── Which sessions belong to this mentor ────────────────────────────────
+     The UNION of two sets, because either one alone contradicts the other
+     half of their dashboard:
+
+       (a) sessions they are staffed on NOW — so a batch they are about to
+           teach is visible before any feedback exists, and
+       (b) sessions they have FEEDBACK from — the stamped rosters, which is
+           what every KPI on the page is computed from.
+
+     Taking only (a) meant a mentor moved off a batch lost the feedback they
+     had actually earned: their dashboard read "1 response, avg 4.00" above a
+     session list that was empty. Taking only (b) would hide a batch they are
+     staffed on until someone answered it. Both halves now come from the same
+     set, so the number and the list can no longer disagree. */
+  const historical = id
+    ? await Feedback.aggregate([
+        { $match: feedbackScope },
+        { $group: { _id: { batch: '$batch', class: '$class' } } },
+      ])
+    : [];
+  const historicalPairs = new Set(historical.map((h) => `${h._id.batch}|${h._id.class}`));
+  const historicalBatchIds = [...new Set(historical.map((h) => String(h._id.batch)))].map(oid);
+
   const batchFilter = { archivedAt: null };
   if (yearGroup) batchFilter.yearGroup = yearGroup;
   if (id || classId) {
     const elem = {};
     if (classId) elem.class = oid(classId);
     if (rosterOr.length) elem.$or = rosterOr;
-    batchFilter.classes = { $elemMatch: elem };
+    const staffed = { classes: { $elemMatch: elem } };
+    // A batch they no longer staff but still have feedback from must still be
+    // fetched, or set (b) has nothing to attach its card to.
+    if (id && historicalBatchIds.length) {
+      batchFilter.$or = [staffed, { _id: { $in: historicalBatchIds } }];
+    } else {
+      Object.assign(batchFilter, staffed);
+    }
   }
-
-  const feedbackScope = buildFeedbackMatch({ scopeTrainerId, role, from, to });
 
   const [batches, perSession, perSessionParam, params] = await Promise.all([
     Batch.find(batchFilter)
@@ -876,8 +906,16 @@ export async function sessionCards({ scopeTrainerId, role, yearGroup, classId, f
       // batch — a batch matching the query does not mean every session in it
       // is visible.
       if (classId && String(entry.class?._id || entry.class) !== String(classId)) continue;
-      if (id && !staffs(entry, id)) continue;
-      if (id && role && !rolesOn(entry, id).includes(role)) continue;
+
+      const cid0 = String(entry.class?._id || entry.class);
+      const hasHistory = historicalPairs.has(`${b._id}|${cid0}`);
+      const staffedNow = id ? staffs(entry, id) : true;
+      // Staffed now, or has feedback of theirs — see the note above.
+      if (id && !staffedNow && !hasHistory) continue;
+      // The role filter applies to the CURRENT staffing only; a historical
+      // session is included on the strength of the feedback itself, which the
+      // match has already filtered by role.
+      if (id && staffedNow && role && !rolesOn(entry, id).includes(role)) continue;
 
       const cid = String(entry.class?._id || entry.class);
       const k = key(b._id, cid);
@@ -903,6 +941,10 @@ export async function sessionCards({ scopeTrainerId, role, yearGroup, classId, f
             myRoles: e.myRoles,
           };
         })(),
+        /* True when the mentor is no longer on this batch's roster but still
+           holds feedback from it. The UI says so rather than showing a session
+           that looks current. */
+        historicalOnly: Boolean(id && !staffs(entry, id)),
         responses: st?.responses || 0,
         average: st ? round(st.starSum / st.starCount, 2) : null,
         lastFeedbackAt: st?.lastAt || null,

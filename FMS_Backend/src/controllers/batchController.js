@@ -8,6 +8,7 @@ import { badRequest, notFound } from '../utils/ApiError.js';
 import { generateBatchPasscode, PASSCODE_ENTROPY_BITS } from '../utils/passcode.js';
 import { hashPasscode } from '../utils/password.js';
 import { recordAudit } from '../services/auditService.js';
+import { findRosterDrift, reattributeSession } from '../services/rosterDriftService.js';
 import { escapeRegex, shapeEntry } from '../services/analyticsService.js';
 
 const populateClasses = [
@@ -444,4 +445,59 @@ export const archiveBatch = asyncHandler(async (req, res) => {
 
   await batch.populate(populateClasses);
   res.json({ batch: publicBatch(batch) });
+});
+
+
+/**
+ * GET /api/v1/batches/roster-drift
+ *
+ * Sessions whose feedback is stamped with a different mentor team from the one
+ * the batch now names. Reported rather than repaired: see rosterDriftService.
+ */
+export const rosterDrift = asyncHandler(async (req, res) => {
+  const drift = await findRosterDrift({ batchId: req.query.batch || undefined });
+  res.json({
+    drift,
+    responses: drift.reduce((n, d) => n + d.responses, 0),
+  });
+});
+
+/**
+ * POST /api/v1/batches/:id/reattribute  { classId }
+ *
+ * Move one session's existing feedback onto the batch's current roster. The
+ * right action when the original roster was wrong; the wrong one when a mentor
+ * joined later. The admin decides, having been shown exactly who gains and who
+ * loses — the UI will not offer this without that list on screen.
+ */
+export const reattribute = asyncHandler(async (req, res) => {
+  const { classId } = req.body;
+  if (!classId) throw badRequest('classId is required', 'NO_CLASS');
+
+  const batch = await Batch.findById(req.params.id).lean();
+  if (!batch) throw notFound('Batch not found');
+
+  const before = await findRosterDrift({ batchId: batch._id });
+  const target = before.find((d) => String(d.classId) === String(classId));
+
+  const result = await reattributeSession({ batchId: batch._id, classId, actor: req.user?._id });
+
+  recordAudit(req, {
+    action: 'batch.reattribute',
+    entity: 'batch',
+    entityId: batch._id,
+    entityName: batch.name,
+    /* The previous attribution is recorded, because this action rewrites a
+       performance record and "who did it hold before?" has to be answerable
+       afterwards. */
+    meta: {
+      classId: String(classId),
+      className: target?.className,
+      responses: result.modified,
+      from: target?.stamped,
+      to: target?.current,
+    },
+  });
+
+  res.json({ ...result, session: target || null });
 });

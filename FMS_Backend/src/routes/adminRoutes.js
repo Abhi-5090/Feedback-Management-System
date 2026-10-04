@@ -41,6 +41,8 @@ import {
   updateBatch,
   listBatches,
   unlockBatch,
+  rosterDrift,
+  reattribute,
   lockBatch,
   rotatePasscode,
   archiveBatch,
@@ -96,6 +98,11 @@ router.delete('/parameters/:id', admin, deleteParameter);
 router.post('/batches', admin, validate(batchCreateSchema), createBatch);
 router.get('/batches', admin, listQuery, listBatches);
 router.patch('/batches/:id', admin, validate(batchUpdateSchema), updateBatch);
+/* Roster drift. Before `/batches/:id` style routes so "roster-drift" is never
+   matched as a batch id. */
+router.get('/batches/roster-drift', admin, rosterDrift);
+router.post('/batches/:id/reattribute', admin, reattribute);
+
 router.post('/batches/:id/unlock', admin, validate(batchUnlockSchema), unlockBatch);
 router.post('/batches/:id/lock', admin, lockBatch);
 // POST (not GET): rotating the passcode mutates state, so it must not be a GET.
