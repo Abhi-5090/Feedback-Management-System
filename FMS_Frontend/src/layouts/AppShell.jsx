@@ -3,6 +3,8 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useTheme } from '../theme/ThemeContext.jsx';
+import PhaseFilter from '../phase/PhaseFilter.jsx';
+import { usePhaseScope } from '../phase/PhaseScope.jsx';
 import Icon from '../components/Icon.jsx';
 
 /**
@@ -21,11 +23,23 @@ import Icon from '../components/Icon.jsx';
  * not slide. The only real animation is the mobile drawer (occasional), on the
  * iOS drawer curve so it reads as being pulled rather than played.
  */
+/* Routes whose content is feedback. Anything not listed shows no figures the
+   phase could narrow, so the control is hidden there rather than offered and
+   ignored. */
+const FEEDBACK_ROUTES = [
+  /^\/admin\/?$/, /^\/admin\/feedbacks/, /^\/admin\/compare/, /^\/admin\/cohorts/,
+  /^\/admin\/classes/, /^\/admin\/class\//, /^\/admin\/batch\//, /^\/admin\/comments/,
+  /^\/trainer\/?$/, /^\/trainer\/feedbacks/, /^\/trainer\/batches/,
+  /^\/trainer\/class\//, /^\/trainer\/batch\//,
+];
+
 export default function AppShell({ brand, roleLabel, nav }) {
   const { user, logout } = useAuth();
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const showsFeedback = FEEDBACK_ROUTES.some((re) => re.test(location.pathname));
+  const { phase } = usePhaseScope();
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
 
@@ -214,7 +228,23 @@ export default function AppShell({ brand, roleLabel, nav }) {
             <Icon name="menu" size={18} />
           </button>
           <p className="hidden text-sm font-medium text-muted lg:block">{roleLabel} workspace</p>
-          <div className="ml-auto flex items-center gap-1.5">
+
+          {/* The phase filter lives here, and only here: one control in one
+              place, in the same spot on every screen, because the thing it
+              changes — which collection exercise you are reading — applies to
+              the whole workspace rather than to one panel on one page.
+
+              Hidden on routes that show no feedback (Settings, Parameters, the
+              mentor roster, the audit trail). A filter that cannot affect
+              anything on screen is noise, and worse, it implies the page IS
+              filtered when it is not. */}
+          {showsFeedback && (
+            <div className="ml-auto mr-1 min-w-0">
+              <PhaseFilter showUnassigned={roleLabel === 'Admin'} />
+            </div>
+          )}
+
+          <div className={`${showsFeedback ? '' : 'ml-auto'} flex items-center gap-1.5`}>
             <button
               onClick={toggle}
               className="btn-ghost !px-2.5 !py-2"
@@ -239,7 +269,18 @@ export default function AppShell({ brand, roleLabel, nav }) {
               exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6 }}
               transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
             >
-              <Outlet />
+              {/* Keyed on the phase, so changing it REMOUNTS the current page
+                  and its fetches run again with the new scope.
+
+                  The alternative is adding `phase` to the dependency array of
+                  every data effect on every page — a dozen of them — where
+                  missing one fails silently: that page keeps showing every
+                  phase while the filter says otherwise, and two screens
+                  disagree without either admitting it. Remounting costs a
+                  re-render and resets page-local state like pagination, which
+                  is the correct behaviour anyway: the dataset underneath has
+                  changed. */}
+              <Outlet key={phase} />
             </motion.div>
           </AnimatePresence>
         </main>

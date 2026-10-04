@@ -297,11 +297,55 @@ describe('deletion', () => {
 });
 
 describe('access', () => {
-  test('a mentor cannot read or create phases', async () => {
+  let mentor;
+  beforeEach(async () => {
     const t = await loginToken(request, 't@test.com', 'trainer-fixture-2026');
-    const as = (r) => r.set('Authorization', `Bearer ${t}`);
-    expect((await as(request(target()).get(api('/phases')))).status).toBe(403);
-    expect((await as(request(target()).post(api('/phases')))).status).toBe(403);
+    mentor = (r) => r.set('Authorization', `Bearer ${t}`);
+  });
+
+  test('a mentor can READ the phase list — it populates their own filter', async () => {
+    await makePhase();
+    const res = await mentor(request(target()).get(api('/phases')));
+    expect(res.status).toBe(200);
+    expect(res.body.phases).toHaveLength(1);
+    expect(res.body.phases[0]).toMatchObject({ code: 'P1', name: 'Phase 1 — September' });
+  });
+
+  test('but NOT the institution-wide figures on it', async () => {
+    /* The isolation guarantee the product rests on: a mentor sees their own
+       sessions and nothing else. Total responses, batch count and the overall
+       average are everyone's data — handing them over through a filter
+       dropdown would undo it quietly. */
+    await submit({ at: new Date('2026-09-15T10:00:00.000Z') });
+    await makePhase();
+
+    const res = await mentor(request(target()).get(api('/phases')));
+    const p = res.body.phases[0];
+    expect(p.responses).toBeUndefined();
+    expect(p.batches).toBeUndefined();
+    expect(p.average).toBeUndefined();
+    // And the unassigned roll-up, which is also institution-wide.
+    expect(res.body.unassigned).toBeNull();
+
+    // The admin still sees all of it.
+    const asAdmin = await auth(request(target()).get(api('/phases')));
+    expect(asAdmin.body.phases[0].responses).toBeGreaterThan(0);
+    expect(asAdmin.body.unassigned).not.toBeNull();
+  });
+
+  test('a mentor cannot create, edit, close or delete a phase', async () => {
+    const made = await makePhase();
+    const id = made.body.phase._id;
+    expect((await mentor(request(target()).post(api('/phases')))).status).toBe(403);
+    expect((await mentor(request(target()).patch(api(`/phases/${id}`)))).status).toBe(403);
+    expect((await mentor(request(target()).post(api(`/phases/${id}/close`)))).status).toBe(403);
+    expect((await mentor(request(target()).delete(api(`/phases/${id}`)))).status).toBe(403);
+  });
+
+  test('a mentor cannot read one phase in full either', async () => {
+    // The detail endpoint returns the figures, so it stays admin-only.
+    const made = await makePhase();
+    expect((await mentor(request(target()).get(api(`/phases/${made.body.phase._id}`)))).status).toBe(403);
   });
 });
 

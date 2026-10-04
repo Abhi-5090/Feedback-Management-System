@@ -18,6 +18,40 @@ const baseURL = (import.meta.env.VITE_API_URL || '') + API_VERSION;
 
 export const api = axios.create({ baseURL, withCredentials: true });
 
+/* ── Phase scope ───────────────────────────────────────────────────────────
+ * The selected collection phase, appended to every feedback-bearing GET.
+ *
+ * Injected HERE rather than threaded through each page's fetch. There are a
+ * dozen call sites across the dashboard, feedbacks, comments, comparison,
+ * cohorts and both drill-downs, plus the exports — passing a parameter through
+ * each one means a dependency array to get right in each one, and the failure
+ * when you miss one is silent: that page keeps showing every phase while the
+ * filter says otherwise, and the two screens disagree without saying so.
+ *
+ * Set from the PhaseScope provider, read by the interceptor. A module-level
+ * value because an axios interceptor cannot use a hook.
+ */
+let phaseParam;
+export function setPhaseParam(next) {
+  phaseParam = next || undefined;
+}
+
+/* Only the routes whose content IS feedback. An allow-list rather than a
+   deny-list: a new endpoint should have to opt in, because silently filtering
+   something that was never meant to be filtered is the harder bug to spot. */
+const PHASE_SCOPED = [/^\/dashboard\//, /^\/analytics\//, /^\/export\//];
+
+api.interceptors.request.use((config) => {
+  if (!phaseParam) return config;
+  const url = config.url || '';
+  if (!PHASE_SCOPED.some((re) => re.test(url))) return config;
+  // An explicit phase on the call wins — a page asking for one specific phase
+  // must not be overridden by the global scope.
+  if (config.params?.phase !== undefined) return config;
+  config.params = { ...(config.params || {}), phase: phaseParam };
+  return config;
+});
+
 // Normalise error messages so UI can show err.message directly.
 api.interceptors.response.use(
   (res) => res,

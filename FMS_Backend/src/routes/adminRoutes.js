@@ -58,6 +58,11 @@ const router = Router();
 // requests (public, analytics, dashboard, export) fall through untouched.
 const admin = [requireAuth, requirePasswordChanged, requireRole('admin')];
 
+/* Signed in, either role. Used only where a MENTOR legitimately needs the data
+   — currently just the phase list, which populates their phase filter. The
+   controller strips the institution-wide figures for them; see listPhases. */
+const authed = [requireAuth, requirePasswordChanged];
+
 // The list endpoints share one query schema (page/limit/q/filters). Validated
 // on `query` so the controllers receive coerced numbers and safe defaults
 // instead of re-parsing strings and clamping by hand in five places.
@@ -102,8 +107,8 @@ router.patch('/batches/:id/archive', admin, archiveBatch);
 /* ── Phases ───────────────────────────────────────────────────────────────
    The collection exercise a response belongs to. `/current` sits before
    `/:id` or Express matches "current" as an id. */
-router.get('/phases/current', admin, currentPhase);
-router.get('/phases', admin, listPhases);
+router.get('/phases/current', authed, currentPhase);
+router.get('/phases', authed, listPhases); // figures stripped for mentors
 router.post('/phases', admin, validate(phaseCreateSchema), createPhase);
 router.get('/phases/:id', admin, getPhase);
 router.patch('/phases/:id', admin, validate(phaseUpdateSchema), updatePhase);

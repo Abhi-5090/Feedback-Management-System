@@ -34,17 +34,42 @@ async function shape(doc) {
   };
 }
 
+/** Identity only — no figures. What a mentor is allowed to see. */
+function shapeForMentor(doc) {
+  const now = new Date();
+  return {
+    _id: doc._id,
+    name: doc.name,
+    code: doc.code,
+    startsAt: doc.startsAt,
+    endsAt: doc.endsAt,
+    status: doc.status,
+    collecting: doc.status === 'open' && now >= doc.startsAt && now < doc.endsAt,
+  };
+}
+
 // GET /api/v1/phases
 export const listPhases = asyncHandler(async (req, res) => {
   const docs = await Phase.find().sort({ startsAt: -1 }).lean();
+
+  /* A mentor needs this list to populate their own phase filter, but the
+     counts on it are INSTITUTION-WIDE — total responses, batches, the overall
+     average. Handing those over would undo the isolation the whole product
+     rests on: a mentor sees their own sessions and nothing else. They get the
+     names and dates, which is all a filter needs. */
+  if (req.user?.role !== 'admin') {
+    return res.json({ phases: docs.map(shapeForMentor), unassigned: null });
+  }
+
   const phases = await Promise.all(docs.map(shape));
-  res.json({ phases, unassigned: await unassignedStats() });
+  return res.json({ phases, unassigned: await unassignedStats() });
 });
 
 // GET /api/v1/phases/current — the phase a new submission would land in.
-export const currentPhase = asyncHandler(async (_req, res) => {
+export const currentPhase = asyncHandler(async (req, res) => {
   const p = await collectingPhase();
-  res.json({ phase: p ? await shape(p) : null });
+  if (!p) return res.json({ phase: null });
+  return res.json({ phase: req.user?.role === 'admin' ? await shape(p) : shapeForMentor(p) });
 });
 
 // GET /api/v1/phases/:id
