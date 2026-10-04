@@ -5,7 +5,12 @@ import {
   feedbackBody, loginToken, ADMIN_PASSWORD, startTestServer, stopTestServer, target,
 } from './helpers.js';
 import { Feedback } from '../models/Feedback.js';
-import { sessionCards, overallStats, buildFeedbackMatch } from '../services/analyticsService.js';
+import {
+  sessionCards,
+  overallStats,
+  buildScopedMatch,
+  MATCH_NOTHING,
+} from '../services/analyticsService.js';
 import { findRosterDrift } from '../services/rosterDriftService.js';
 
 jest.setTimeout(60_000);
@@ -70,23 +75,28 @@ const restaff = (main, support = []) =>
   });
 
 describe('the reported symptom', () => {
-  test('a mentor added AFTER collection sees the session with zero responses', async () => {
-    /* Exactly what was reported: the admin sees 1 response on this session,
-       the newly-added mentor sees the card with 0. */
+  test('a mentor added AFTER collection sees the feedback that session holds', async () => {
+    /* What was reported: the admin saw 1 response on this session and the
+       newly-added mentor saw the card with 0. The roster is what grants
+       access, so putting Bob and Carol on the batch hands them the session
+       AND what it holds. */
     await submit();
     const locked = await auth(request(target()).post(api(`/batches/${batch._id}/lock`)));
     expect(locked.status).toBe(200);
     expect((await restaff([bob._id], [carol._id])).status).toBe(200);
 
-    const forBob = await sessionCards({ scopeTrainerId: bob._id });
-    expect(forBob.sessions).toHaveLength(1);
-    expect(forBob.sessions[0].responses).toBe(0); // the card, but empty
+    for (const t of [bob, carol]) {
+      const cards = await sessionCards({ scopeTrainerId: t._id });
+      expect(cards.sessions).toHaveLength(1);
+      expect(cards.sessions[0].responses).toBe(1);
+    }
 
-    // Alice, who actually taught it, KEEPS it — flagged as no longer hers to teach.
+    /* And Alice, taken off the batch, no longer sees it. This is the real cost
+       of roster-as-permission and it is deliberate: access follows the roster
+       in BOTH directions, so the Edit screen is the whole truth about who can
+       read what. The feedback still records that Alice taught it. */
     const forAlice = await sessionCards({ scopeTrainerId: alice._id });
-    expect(forAlice.sessions).toHaveLength(1);
-    expect(forAlice.sessions[0].responses).toBe(1);
-    expect(forAlice.sessions[0].historicalOnly).toBe(true);
+    expect(forAlice.sessions).toHaveLength(0);
   });
 });
 
@@ -100,23 +110,22 @@ describe('a mentor dashboard cannot contradict itself', () => {
    *   an added mentor saw a session card above "0 responses".
    *
    * Neither number was wrong on its own, which is what made it so hard to
-   * see. They come from one set now.
+   * see. Both now come from the roster, so there is no second opinion.
    */
-  const kpiFor = (t) => overallStats(buildFeedbackMatch({ scopeTrainerId: t._id }));
+  const kpiFor = async (t) => overallStats(await buildScopedMatch({ scopeTrainerId: t._id }));
 
-  test('a mentor REMOVED from a batch keeps the feedback they earned', async () => {
+  test('a mentor REMOVED from a batch loses sight of it entirely', async () => {
     await submit();
     await auth(request(target()).post(api(`/batches/${batch._id}/lock`)));
     await restaff([bob._id]);
 
     const cards = await sessionCards({ scopeTrainerId: alice._id });
     const kpi = await kpiFor(alice);
-    expect(cards.sessions).toHaveLength(1);
-    expect(cards.sessions[0].responses).toBe(kpi.feedbackCount);
-    expect(kpi.feedbackCount).toBe(1);
+    expect(cards.sessions).toHaveLength(0);
+    expect(kpi.feedbackCount).toBe(0);
   });
 
-  test('a mentor ADDED to a batch sees the session, with an honest zero', async () => {
+  test('a mentor ADDED to a batch sees the session and its responses', async () => {
     await submit();
     await auth(request(target()).post(api(`/batches/${batch._id}/lock`)));
     await restaff([bob._id]);
@@ -125,12 +134,10 @@ describe('a mentor dashboard cannot contradict itself', () => {
     const kpi = await kpiFor(bob);
     expect(cards.sessions).toHaveLength(1);
     expect(cards.sessions[0].responses).toBe(kpi.feedbackCount);
-    expect(kpi.feedbackCount).toBe(0);
-    // Staffed now, so not flagged historical.
-    expect(cards.sessions[0].historicalOnly).toBe(false);
+    expect(kpi.feedbackCount).toBe(1);
   });
 
-  test('the totals across a mentor\'s cards equal their KPI, after re-attribution too', async () => {
+  test("the totals across a mentor's cards equal their KPI, re-attributed or not", async () => {
     await submit();
     await auth(request(target()).post(api(`/batches/${batch._id}/lock`)));
     await restaff([bob._id]);
@@ -146,12 +153,21 @@ describe('a mentor dashboard cannot contradict itself', () => {
   });
 
   test('a mentor still sees NOTHING of a batch they were never on', async () => {
-    /* The guarantee the product is sold on, re-asserted after widening what a
-       mentor can see. Widening access is exactly where isolation breaks. */
+    /* The guarantee the product is sold on, re-asserted after changing what
+       grants access. Widening access is exactly where isolation breaks. */
     await submit();
     const cards = await sessionCards({ scopeTrainerId: carol._id });
     expect(cards.sessions).toHaveLength(0);
     expect((await kpiFor(carol)).feedbackCount).toBe(0);
+  });
+
+  test('a mentor staffed on NOTHING sees nothing, not everything', async () => {
+    /* The failure mode that matters most: an empty scope collapsing to `{}`
+       and returning the whole institution. Carol is on no roster at all. */
+    await submit();
+    const clause = await buildScopedMatch({ scopeTrainerId: carol._id });
+    expect(clause).toEqual(MATCH_NOTHING);
+    expect((await overallStats(clause)).feedbackCount).toBe(0);
   });
 });
 
@@ -270,16 +286,34 @@ describe('drift is REPAIRED only when asked', () => {
 });
 
 describe('what must NOT change', () => {
-  test('feedback collected under the CURRENT roster is untouched by a later edit', async () => {
-    /* The guarantee that makes the stamp worth having: adding a mentor must
-       not retroactively credit them with sessions they were not in. */
+  test('a roster edit never rewrites who the feedback says taught the session', async () => {
+    /* Visibility follows the roster now, but ATTRIBUTION still does not. Bob
+       joining lets Bob read the session; it must not make the record claim he
+       was in a room he was never in. Only an explicit re-attribution does
+       that, and it is audited. */
     await submit();
     await auth(request(target()).post(api(`/batches/${batch._id}/lock`)));
     await restaff([alice._id], [bob._id]); // Alice stays, Bob joins
 
-    const forBob = await sessionCards({ scopeTrainerId: bob._id });
-    expect(forBob.sessions[0].responses).toBe(0);
-    const forAlice = await sessionCards({ scopeTrainerId: alice._id });
-    expect(forAlice.sessions[0].responses).toBe(1);
+    const row = await Feedback.findOne({ batch: batch._id, class: klass._id }).lean();
+    expect(row.mainTrainers.map(String)).toEqual([String(alice._id)]);
+    expect(row.supportTrainers.map(String)).toEqual([]);
+  });
+
+  test('the roster is the whole truth about who can read a session', async () => {
+    /* Both directions, asserted together, because this is the property the
+       admin is promised when they edit a roster: whoever is on it sees the
+       feedback, whoever is off it does not. */
+    await submit();
+    await auth(request(target()).post(api(`/batches/${batch._id}/lock`)));
+    await restaff([alice._id], [bob._id]);
+
+    for (const t of [alice, bob]) {
+      const cards = await sessionCards({ scopeTrainerId: t._id });
+      expect(cards.sessions).toHaveLength(1);
+      expect(cards.sessions[0].responses).toBe(1);
+    }
+    // Carol is on no roster and sees nothing, stamp or no stamp.
+    expect((await sessionCards({ scopeTrainerId: carol._id })).sessions).toHaveLength(0);
   });
 });

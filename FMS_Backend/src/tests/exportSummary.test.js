@@ -14,7 +14,12 @@ import {
   feedbackBody, loginToken, ADMIN_PASSWORD,
   startTestServer, stopTestServer, target,
 } from './helpers.js';
-import { sessionRatings, yearRank, buildFeedbackMatch } from '../services/analyticsService.js';
+import {
+  sessionRatings,
+  yearRank,
+  buildFeedbackMatch,
+  buildScopedMatch,
+} from '../services/analyticsService.js';
 
 jest.setTimeout(60_000);
 
@@ -196,7 +201,7 @@ describe('sessionRatings', () => {
   test('filtering to one mentor keeps only the sessions they were on', async () => {
     await submitTo(codingBatch, [coding._id], 4);
     await submitTo(genaiBatch, [genai._id], 2);
-    const rows = await sessionRatings(buildFeedbackMatch({ trainerId: alice._id }), {
+    const rows = await sessionRatings(await buildScopedMatch({ trainerId: alice._id }), {
       onlyMentorId: alice._id,
     });
     // Alice has nothing to do with the GenAI cohort.

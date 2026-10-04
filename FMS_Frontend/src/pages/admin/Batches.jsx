@@ -633,8 +633,8 @@ export default function Batches() {
         }
       />
 
-      {/* Shown above everything: a mentor telling you they cannot see their
-          feedback is a support ticket, and this is the answer to it. */}
+      {/* Attribution drift — whose record a session counts towards. Access is
+          decided by the roster and needs no repair; this does. */}
       <RosterDriftPanel />
 
       {/* Operational summary. Open batches are the only ones actively taking

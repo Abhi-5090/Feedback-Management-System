@@ -12,7 +12,7 @@ import {
 } from '../services/insightsService.js';
 import {
   trainerClassIds,
-  buildFeedbackMatch,
+  buildScopedMatch,
   batchIdsForCohort,
   andMatch,
   perParameterAverages,
@@ -70,7 +70,7 @@ async function resolveMatch(req, { scopeTrainerId, classId, batchId } = {}) {
       ? Number(roundRaw)
       : undefined;
 
-  const base = buildFeedbackMatch({
+  const base = await buildScopedMatch({
     scopeTrainerId,
     role: resolveRole(req),
     classId: classId ?? q.classId,
@@ -151,7 +151,7 @@ export const classesOverview = asyncHandler(async (req, res) => {
   // Feedback figures are scoped to the mentor's own rosters, so a class's card
   // shows only the sessions they actually staffed.
   const fbScope = scopeTrainerId
-    ? buildFeedbackMatch({ scopeTrainerId, role })
+    ? await buildScopedMatch({ scopeTrainerId, role })
     : {};
   // Batch counts likewise: for a trainer, only batches where they staff the class.
   const batchTrainerMatch = scopeTrainerId
@@ -297,7 +297,7 @@ export const classAnalytics = asyncHandler(async (req, res) => {
      the navigation, so it always lists every cohort the subject runs for. */
   const breakdown = await classYearGroupBreakdown({
     classId: klass._id,
-    match: buildFeedbackMatch({
+    match: await buildScopedMatch({
       scopeTrainerId,
       role: resolveRole(req),
       phase: req.query.phase,
@@ -354,7 +354,7 @@ export const batchAnalytics = asyncHandler(async (req, res) => {
   const classesBreakdown = await Promise.all(
     visibleEntries.map(async (e) => {
       const classId = e.class?._id || e.class;
-      const cMatch = buildFeedbackMatch({
+      const cMatch = await buildScopedMatch({
         scopeTrainerId,
         role: resolveRole(req),
         batchId: batch._id,
@@ -456,7 +456,7 @@ export const trainerBatchesOverview = asyncHandler(async (req, res) => {
         {
           $match: andMatch(
             { batch: { $in: ids } },
-            buildFeedbackMatch({ scopeTrainerId: me, role })
+            await buildScopedMatch({ scopeTrainerId: me, role })
           ),
         },
         { $unwind: '$ratings' },

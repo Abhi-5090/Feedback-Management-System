@@ -8,20 +8,26 @@ const day = (d) =>
   d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '—';
 
 /**
- * Sessions whose feedback is attributed to a different mentor team from the
+ * Sessions whose feedback is ATTRIBUTED to a different mentor team from the
  * one the batch now names.
  *
- * WHY IT NEEDS SAYING OUT LOUD. Every response carries a COPY of the rosters
- * as they stood when it was submitted, so that changing a batch's staffing
- * later cannot rewrite who taught a session that has already been rated. That
- * is correct, and it is also completely invisible: an admin fixes a roster,
- * and the mentor they just added opens their account to find the session
- * listed with zero responses while the admin sees seventy-three. Nothing is
- * broken and nothing explains it.
+ * This is a record-keeping discrepancy, not a permissions one. Who can READ a
+ * session's feedback is decided by the batch roster, so a mentor added to a
+ * batch sees everything it holds the moment they are added — that part needs
+ * no repair.
  *
- * So the disagreement is shown, with the one thing an admin needs in order to
- * decide — who gains the feedback and who loses it — and the repair is an
- * explicit action rather than something that happens quietly.
+ * What drifts is the other half: every response also stores a copy of the
+ * roster as it stood when the student submitted it, and that copy is what says
+ * who actually TAUGHT the session. It is deliberately immutable, so that
+ * re-staffing a batch cannot quietly rewrite a performance record. The cost of
+ * that choice is that an honest correction — a roster entered wrongly and
+ * fixed later — leaves the record permanently disagreeing with reality, with
+ * nothing on screen to say so.
+ *
+ * Hence this: the disagreement, stated plainly, with the one fact an admin
+ * needs in order to judge it — whose record gains and whose loses — and a
+ * repair that is an explicit decision rather than something that happens by
+ * itself.
  */
 export default function RosterDriftPanel() {
   const toast = useToast();
@@ -63,13 +69,13 @@ export default function RosterDriftPanel() {
           <Icon name="alert" size={18} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="min-w-0 flex-1">
             <h2 className="text-sm font-bold text-ink">
-              {data.drift.length} session{data.drift.length === 1 ? '' : 's'} attributed to a previous mentor team
+              {data.drift.length} session{data.drift.length === 1 ? '' : 's'} credited to a previous mentor team
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-muted">
-              Feedback records the mentors who were staffed when it was submitted, so changing a batch&rsquo;s roster
-              afterwards does not move it. These <span className="tnum font-semibold text-ink">{data.responses}</span>{' '}
-              responses still belong to the earlier team — which is why a mentor you have just added sees the session
-              with no responses in it.
+              Everyone on a batch can read its feedback, so nobody is missing anything here. But each response also
+              records who taught it, and for these{' '}
+              <span className="tnum font-semibold text-ink">{data.responses}</span> the record still names the earlier
+              team. It is the mentors&rsquo; ratings that are affected, not their access.
             </p>
 
             <ul className="mt-3.5 space-y-2.5">
@@ -103,7 +109,7 @@ export default function RosterDriftPanel() {
             </ul>
 
             <p className="mt-3 text-[11px] leading-relaxed text-subtle">
-              Leave it alone if the team genuinely changed partway through — the feedback belongs to whoever taught
+              Leave it alone if the team genuinely changed partway through — the credit belongs to whoever taught
               those sessions. Re-attribute only if the roster was entered wrongly to begin with.
             </p>
           </div>
@@ -130,8 +136,8 @@ export default function RosterDriftPanel() {
                 <li className="flex gap-2.5">
                   <Icon name="plus" size={15} className="mt-0.5 shrink-0 text-emerald-600" />
                   <span>
-                    <strong>{confirming.wouldGain.join(', ')}</strong> will gain these responses — they appear in their
-                    ratings and on their dashboard.
+                    <strong>{confirming.wouldGain.join(', ')}</strong> will be credited with these responses — they
+                    count towards their ratings.
                   </span>
                 </li>
               )}
@@ -139,8 +145,8 @@ export default function RosterDriftPanel() {
                 <li className="flex gap-2.5">
                   <Icon name="alert" size={15} className="mt-0.5 shrink-0 text-rose-600" />
                   <span>
-                    <strong>{confirming.wouldLose.join(', ')}</strong> will lose them. If they actually taught these
-                    sessions, this removes a record of their work.
+                    <strong>{confirming.wouldLose.join(', ')}</strong> will lose that credit. If they actually taught
+                    these sessions, this erases a record of their work.
                   </span>
                 </li>
               )}

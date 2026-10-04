@@ -62,22 +62,76 @@ export async function trainerClassIds(trainerId, { role } = {}) {
   return [...byId.values()];
 }
 
+/* A filter that matches no document at all. A mentor staffed on nothing must
+   see NOTHING; the dangerous bug in this area is an empty scope collapsing to
+   `{}` and returning the entire institution's feedback. */
+export const MATCH_NOTHING = Object.freeze({ _id: { $in: [] } });
+
+/**
+ * The (batch, class) sessions a mentor is staffed on RIGHT NOW.
+ *
+ * The batch roster — the thing an admin edits in Batches → Edit — is the
+ * single source of truth for who may see a session's feedback. Put a mentor
+ * on a batch and that batch's feedback is theirs to read; take them off and
+ * it is not. There is exactly one place to look to answer "why can they see
+ * this?", and it is the same screen that decides it.
+ *
+ * Feedback also stores a copy of the roster as it stood at submission. That
+ * copy still records WHO TAUGHT a session and is what history is built from,
+ * but it deliberately no longer governs access: it is a frozen snapshot, and
+ * letting a snapshot decide permissions meant a mentor added to a batch could
+ * not see the feedback the admin had just handed them.
+ *
+ * UNWIND BEFORE MATCHING, for the reason spelled out on trainerClassIds: a
+ * batch-level filter selects whole batches, so a mentor assisting on one
+ * subject would pick up every other subject that batch runs. Matching per
+ * unwound ENTRY is what keeps a session-level permission session-level.
+ */
+export async function trainerSessionPairs(trainerId, { role } = {}) {
+  const id = oid(trainerId);
+
+  const rosterMatch = [];
+  if (role !== 'support') rosterMatch.push({ 'classes.mainTrainers': id });
+  if (role !== 'main') rosterMatch.push({ 'classes.supportTrainers': id });
+
+  const rows = await Batch.aggregate([
+    { $match: { $or: rosterMatch } },
+    { $unwind: '$classes' },
+    { $match: { $or: rosterMatch } },
+    { $project: { _id: 0, batch: '$_id', class: '$classes.class' } },
+  ]);
+
+  // One batch can list the same class twice through an editing slip; a
+  // duplicated $or branch would multiply nothing but query cost.
+  const seen = new Map();
+  for (const r of rows) {
+    if (r.batch && r.class) seen.set(`${r.batch}|${r.class}`, r);
+  }
+  return [...seen.values()];
+}
+
+/**
+ * The Feedback clause that limits a query to one mentor's sessions.
+ * Pass the result to buildFeedbackMatch as `scopeClause`.
+ */
+export async function trainerScopeClause(trainerId, { role } = {}) {
+  const pairs = await trainerSessionPairs(trainerId, { role });
+  if (!pairs.length) return MATCH_NOTHING;
+  return { $or: pairs.map((p) => ({ batch: p.batch, class: p.class })) };
+}
+
 /**
  * Build a Mongo `$match` on the Feedback collection from a filter spec.
  *
- * MENTOR ISOLATION is by the denormalised rosters on each Feedback row, so:
- *   - a mentor matches if they are in EITHER roster (default),
- *   - `role: 'main'` narrows to sessions they delivered,
- *   - `role: 'support'` narrows to sessions they assisted.
- * A per-batch staffing change therefore routes feedback to whoever actually
- * taught, and one mentor can never see another's batch.
+ * MENTOR ISOLATION is by the CURRENT batch roster, resolved by the caller into
+ * `scopeClause` via buildScopedMatch. This function will not accept a raw
+ * trainer id: taking one would mean quietly guessing whether to filter on the
+ * live roster or the stamped snapshot, and guessing wrong in the permissive
+ * direction shows one mentor another's batch. A missed call site throws here
+ * rather than returning an unscoped match.
  *
- *  - scopeTrainerId: hard server-side cap (the logged-in trainer's id).
- *  - trainerId:      admin UI filter "show me this mentor's feedback".
- *  - classId/batchId/yearGroup/from/to: optional narrowing filters.
- *
- * scopeTrainerId wins over a client-supplied trainerId, so a trainer can never
- * widen their own scope by passing a different id.
+ *  - scopeClause: a pre-resolved roster clause (see trainerScopeClause).
+ *  - classId/batchId/from/to: optional narrowing filters.
  *
  * Conditions are accumulated into `$and` rather than merged onto one object,
  * because the roster check is itself an `$or` — merging would let a second
@@ -85,6 +139,7 @@ export async function trainerClassIds(trainerId, { role } = {}) {
  * mentor's rows.
  */
 export function buildFeedbackMatch({
+  scopeClause,
   scopeTrainerId,
   classId,
   batchId,
@@ -96,15 +151,19 @@ export function buildFeedbackMatch({
   to,
   comment,
 } = {}) {
+  /* Fail loudly, not open. An unresolved trainer id here used to filter on the
+     stamped snapshot; now that the roster decides, accepting one would silently
+     answer a different question than the caller asked. */
+  if (scopeTrainerId || trainerId) {
+    throw new Error(
+      'buildFeedbackMatch: resolve the mentor through buildScopedMatch() — ' +
+        'pass scopeClause, not scopeTrainerId/trainerId.'
+    );
+  }
+
   const and = [];
 
-  const t = scopeTrainerId || trainerId;
-  if (t) {
-    const id = oid(t);
-    if (role === 'main') and.push({ mainTrainers: id });
-    else if (role === 'support') and.push({ supportTrainers: id });
-    else and.push({ $or: [{ mainTrainers: id }, { supportTrainers: id }] });
-  }
+  if (scopeClause) and.push(scopeClause);
 
   if (classId) and.push({ class: oid(classId) });
   if (batchId) and.push({ batch: oid(batchId) });
@@ -221,11 +280,12 @@ export async function overallStats(match) {
  */
 export async function roleSplitStats({ trainerId, classId, batchId, from, to } = {}) {
   const forRole = (role) =>
-    buildFeedbackMatch({ scopeTrainerId: trainerId, role, classId, batchId, from, to });
+    buildScopedMatch({ scopeTrainerId: trainerId, role, classId, batchId, from, to });
 
+  const [mainMatch, supportMatch] = await Promise.all([forRole('main'), forRole('support')]);
   const [main, support] = await Promise.all([
-    overallStats(forRole('main')),
-    overallStats(forRole('support')),
+    overallStats(mainMatch),
+    overallStats(supportMatch),
   ]);
 
   return {
@@ -790,10 +850,11 @@ export async function classYearGroupBreakdown({ classId, match = {}, scopeTraine
  *
  * Two aggregations plus one batch query, regardless of how many sessions exist.
  *
- * SCOPING: a mentor sees only the sessions they are staffed on. The $elemMatch
- * is load-bearing — pairing `classes.class` with `classes.mainTrainers` as
- * sibling keys lets DIFFERENT array elements satisfy them, which is exactly how
- * a support mentor on one Industry Readiness batch came to see all four.
+ * SCOPING: a mentor sees exactly the sessions their batch roster puts them on.
+ * The $elemMatch is load-bearing — pairing `classes.class` with
+ * `classes.mainTrainers` as sibling keys lets DIFFERENT array elements satisfy
+ * them, which is exactly how a support mentor on one Industry Readiness batch
+ * came to see all four.
  */
 export async function sessionCards({ scopeTrainerId, role, yearGroup, classId, from, to } = {}) {
   const id = scopeTrainerId ? oid(scopeTrainerId) : null;
@@ -805,30 +866,11 @@ export async function sessionCards({ scopeTrainerId, role, yearGroup, classId, f
     if (role !== 'main') rosterOr.push({ supportTrainers: id });
   }
 
-  const feedbackScope = buildFeedbackMatch({ scopeTrainerId, role, from, to });
-
-  /* ── Which sessions belong to this mentor ────────────────────────────────
-     The UNION of two sets, because either one alone contradicts the other
-     half of their dashboard:
-
-       (a) sessions they are staffed on NOW — so a batch they are about to
-           teach is visible before any feedback exists, and
-       (b) sessions they have FEEDBACK from — the stamped rosters, which is
-           what every KPI on the page is computed from.
-
-     Taking only (a) meant a mentor moved off a batch lost the feedback they
-     had actually earned: their dashboard read "1 response, avg 4.00" above a
-     session list that was empty. Taking only (b) would hide a batch they are
-     staffed on until someone answered it. Both halves now come from the same
-     set, so the number and the list can no longer disagree. */
-  const historical = id
-    ? await Feedback.aggregate([
-        { $match: feedbackScope },
-        { $group: { _id: { batch: '$batch', class: '$class' } } },
-      ])
-    : [];
-  const historicalPairs = new Set(historical.map((h) => `${h._id.batch}|${h._id.class}`));
-  const historicalBatchIds = [...new Set(historical.map((h) => String(h._id.batch)))].map(oid);
+  /* The session list and every number on it are now built from ONE source —
+     the roster. They cannot disagree, because there is no second opinion:
+     the cards are the mentor's staffed sessions, and the stats are all the
+     feedback those sessions hold, whoever happened to be stamped on it. */
+  const feedbackScope = await buildScopedMatch({ scopeTrainerId, role, from, to });
 
   const batchFilter = { archivedAt: null };
   if (yearGroup) batchFilter.yearGroup = yearGroup;
@@ -836,14 +878,7 @@ export async function sessionCards({ scopeTrainerId, role, yearGroup, classId, f
     const elem = {};
     if (classId) elem.class = oid(classId);
     if (rosterOr.length) elem.$or = rosterOr;
-    const staffed = { classes: { $elemMatch: elem } };
-    // A batch they no longer staff but still have feedback from must still be
-    // fetched, or set (b) has nothing to attach its card to.
-    if (id && historicalBatchIds.length) {
-      batchFilter.$or = [staffed, { _id: { $in: historicalBatchIds } }];
-    } else {
-      Object.assign(batchFilter, staffed);
-    }
+    Object.assign(batchFilter, { classes: { $elemMatch: elem } });
   }
 
   const [batches, perSession, perSessionParam, params] = await Promise.all([
@@ -907,15 +942,10 @@ export async function sessionCards({ scopeTrainerId, role, yearGroup, classId, f
       // is visible.
       if (classId && String(entry.class?._id || entry.class) !== String(classId)) continue;
 
-      const cid0 = String(entry.class?._id || entry.class);
-      const hasHistory = historicalPairs.has(`${b._id}|${cid0}`);
-      const staffedNow = id ? staffs(entry, id) : true;
-      // Staffed now, or has feedback of theirs — see the note above.
-      if (id && !staffedNow && !hasHistory) continue;
-      // The role filter applies to the CURRENT staffing only; a historical
-      // session is included on the strength of the feedback itself, which the
-      // match has already filtered by role.
-      if (id && staffedNow && role && !rolesOn(entry, id).includes(role)) continue;
+      // Staffing is decided per ENTRY: a batch matching the query does not
+      // mean every session inside it is this mentor's to see.
+      if (id && !staffs(entry, id)) continue;
+      if (id && role && !rolesOn(entry, id).includes(role)) continue;
 
       const cid = String(entry.class?._id || entry.class);
       const k = key(b._id, cid);
@@ -944,7 +974,6 @@ export async function sessionCards({ scopeTrainerId, role, yearGroup, classId, f
         /* True when the mentor is no longer on this batch's roster but still
            holds feedback from it. The UI says so rather than showing a session
            that looks current. */
-        historicalOnly: Boolean(id && !staffs(entry, id)),
         responses: st?.responses || 0,
         average: st ? round(st.starSum / st.starCount, 2) : null,
         lastFeedbackAt: st?.lastAt || null,
@@ -1117,7 +1146,7 @@ export async function yearGroupCards({ scopeTrainerId } = {}) {
 export async function batchCollections({ batchId, scopeTrainerId, classId } = {}) {
   const match = andMatch(
     { batch: oid(batchId) },
-    buildFeedbackMatch({ scopeTrainerId, classId })
+    await buildScopedMatch({ scopeTrainerId, classId })
   );
 
   const rows = await Feedback.aggregate([
@@ -1184,13 +1213,14 @@ export const yearRank = (y) => {
  *                               only the sessions they were part of.
  */
 export async function sessionRatings(match, { onlyMentorId } = {}) {
-  const mentorOid = onlyMentorId ? oid(onlyMentorId) : null;
+  /* Narrowed by the live roster, like every other mentor filter — a report
+     that said "Abhishek's sessions" while the dashboard disagreed about which
+     sessions those were is precisely the contradiction this change removes. */
+  const mentorClause = onlyMentorId ? await trainerScopeClause(onlyMentorId) : null;
 
   const rows = await Feedback.aggregate([
     { $match: match },
-    ...(mentorOid
-      ? [{ $match: { $or: [{ mainTrainers: mentorOid }, { supportTrainers: mentorOid }] } }]
-      : []),
+    ...(mentorClause ? [{ $match: mentorClause }] : []),
     { $unwind: '$ratings' },
     {
       $group: {
@@ -1269,4 +1299,19 @@ export async function sessionRatings(match, { onlyMentorId } = {}) {
         a.batchName.localeCompare(b.batchName) ||
         a.className.localeCompare(b.className)
     );
+}
+
+/**
+ * The one way to build a mentor-scoped feedback match.
+ *
+ * `scopeTrainerId` is the logged-in mentor's hard cap; `trainerId` is the
+ * admin's "show me this mentor" filter. The cap wins, so a mentor cannot widen
+ * their own scope by passing somebody else's id. Both resolve through the same
+ * roster lookup, which is what keeps an admin's view of a mentor and that
+ * mentor's own view of themselves showing the same number.
+ */
+export async function buildScopedMatch({ scopeTrainerId, trainerId, role, ...rest } = {}) {
+  const t = scopeTrainerId || trainerId;
+  const scopeClause = t ? await trainerScopeClause(t, { role }) : undefined;
+  return buildFeedbackMatch({ ...rest, role, scopeClause });
 }

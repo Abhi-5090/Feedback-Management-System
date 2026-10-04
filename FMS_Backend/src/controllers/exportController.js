@@ -4,7 +4,7 @@ import { Class } from '../models/Class.js';
 import { Batch } from '../models/Batch.js';
 import {
   trainerClassIds,
-  buildFeedbackMatch,
+  buildScopedMatch,
   batchIdsForCohort,
   andMatch,
   overallStats,
@@ -113,7 +113,7 @@ export const exportClass = asyncHandler(async (req, res) => {
 
   const match = await withCohort(
     req,
-    buildFeedbackMatch({ scopeTrainerId, role: roleFilter(req), classId: klass._id })
+    await buildScopedMatch({ scopeTrainerId, role: roleFilter(req), classId: klass._id })
   );
   const report = await assembleReport(match, {
     title: `Class Feedback — ${klass.name}`,
@@ -159,7 +159,7 @@ export const exportBatch = asyncHandler(async (req, res) => {
     throw forbidden('You can only export your own batches.');
   }
 
-  const match = buildFeedbackMatch({
+  const match = await buildScopedMatch({
     scopeTrainerId,
     role: roleFilter(req),
     batchId: batch._id,
@@ -206,7 +206,7 @@ export const exportTrainerMe = asyncHandler(async (req, res) => {
   const role = roleFilter(req);
   const match = await withCohort(
     req,
-    buildFeedbackMatch({ scopeTrainerId: req.user._id, role })
+    await buildScopedMatch({ scopeTrainerId: req.user._id, role })
   );
   const report = await assembleReport(match, {
     title: `My Feedback — ${req.user.name}`,
@@ -239,7 +239,7 @@ export const exportAdminDashboard = asyncHandler(async (req, res) => {
 
   const match = await withCohort(
     req,
-    buildFeedbackMatch({ classId, batchId, trainerId, role, phase, from: req.query.from, to: req.query.to })
+    await buildScopedMatch({ classId, batchId, trainerId, role, phase, from: req.query.from, to: req.query.to })
   );
 
   const ctxParts = [];

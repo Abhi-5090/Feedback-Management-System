@@ -5,7 +5,7 @@ import { Batch } from '../models/Batch.js';
 import {
   commentTotal,
   trainerClassIds,
-  buildFeedbackMatch,
+  buildScopedMatch,
   batchIdsForCohort,
   andMatch,
   perParameterAverages,
@@ -22,7 +22,7 @@ async function dashboardMatch(req, scopeTrainerId) {
   const { class: classId, batch: batchId, trainer: trainerId, yearGroup, dept, phase, from, to } = req.query;
   const role = ['main', 'support'].includes(req.query.role) ? req.query.role : undefined;
 
-  const base = buildFeedbackMatch({
+  const base = await buildScopedMatch({
     scopeTrainerId,
     classId,
     batchId,
