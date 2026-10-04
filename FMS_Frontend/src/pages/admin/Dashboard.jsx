@@ -13,6 +13,10 @@ import { SkeletonBlock } from '../../components/Spinner.jsx';
 import ParamBarChart from '../../components/charts/ParamBarChart.jsx';
 import TrendLineChart from '../../components/charts/TrendLineChart.jsx';
 import VolumeBarChart from '../../components/charts/VolumeBarChart.jsx';
+import RatingDistribution from '../../components/analytics/RatingDistribution.jsx';
+import ParameterHeatmap from '../../components/analytics/ParameterHeatmap.jsx';
+import SessionRanking from '../../components/analytics/SessionRanking.jsx';
+import CollectionHealth from '../../components/analytics/CollectionHealth.jsx';
 
 /** Skeleton mirrors the real layout so nothing shifts when data lands. */
 function DashboardSkeleton() {
@@ -144,6 +148,23 @@ export default function AdminDashboard() {
               hint="Students who have responded, against the expected cohort sizes of every batch with a cap set. This is the number that tells you whether a survey actually reached people."
             />
           </div>
+
+          {/* ORDER IS THE ARGUMENT. The distribution comes before every chart
+             because it qualifies the headline average directly above it: a
+             reader who takes "4.2" at face value and scrolls on has misread
+             the data, and this is the panel that stops them. Collection health
+             sits beside it for the same reason — it says how much of the
+             cohort that 4.2 actually speaks for. */}
+          <div className="grid gap-5 lg:grid-cols-2">
+            <RatingDistribution data={data.stats?.distribution} />
+            <CollectionHealth data={data.stats?.health} />
+          </div>
+
+          {/* Then the diagnosis: which session, and which parameter of which
+              subject. Both are actionable in a way an average never is. */}
+          <SessionRanking data={data.stats?.ranking} />
+
+          <ParameterHeatmap data={data.stats?.heatmap} />
 
           {/* Charts */}
           <div className="grid gap-5 lg:grid-cols-2">

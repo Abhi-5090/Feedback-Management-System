@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { User } from '../models/User.js';
 import { Class } from '../models/Class.js';
@@ -5,6 +6,7 @@ import { Batch } from '../models/Batch.js';
 import {
   commentTotal,
   trainerClassIds,
+  trainerSessionPairs,
   buildScopedMatch,
   batchIdsForCohort,
   andMatch,
@@ -16,6 +18,13 @@ import {
   recentComments,
   openBatches,
 } from '../services/analyticsService.js';
+import {
+  ratingDistribution,
+  parameterBySubject,
+  sessionRanking,
+  commentDepth,
+  collectionHealth,
+} from '../services/dashboardStatsService.js';
 
 /** Shared filter resolution for both dashboards. */
 async function dashboardMatch(req, scopeTrainerId) {
@@ -55,6 +64,11 @@ export const adminDashboard = asyncHandler(async (req, res) => {
     totalComments,
     openBatchList,
     coverage,
+    distribution,
+    heatmap,
+    ranking,
+    commentStats,
+    health,
   ] = await Promise.all([
     User.countDocuments({ role: 'trainer', isActive: true }),
     Class.countDocuments({ archivedAt: null }),
@@ -104,6 +118,11 @@ export const adminDashboard = asyncHandler(async (req, res) => {
         },
       },
     ]),
+    ratingDistribution(match),
+    parameterBySubject(match),
+    sessionRanking(match),
+    commentDepth(match),
+    collectionHealth({}),
   ]);
 
   const cov = coverage[0] || { expected: 0, submitted: 0 };
@@ -123,6 +142,10 @@ export const adminDashboard = asyncHandler(async (req, res) => {
         : 0,
     },
     charts: { perParameter, trend, volumePerClass: volume },
+    /* The analytical half of the page: how the stars are spread, where a
+       weakness actually sits, which sessions stand out, and how far the
+       collection can be trusted. */
+    stats: { distribution, heatmap, ranking, comments: commentStats, health },
     openBatchList,
     comments,
     // The page is 50; this says how many exist so the feed can offer the rest.
@@ -149,6 +172,10 @@ export const trainerDashboard = asyncHandler(async (req, res) => {
     totalComments,
     openBatchList,
     roleSplit,
+    distribution,
+    heatmap,
+    ranking,
+    commentStats,
   ] = await Promise.all([
     // Subjects the mentor is involved with (owned or staffed in any batch).
     trainerClassIds(scopeTrainerId).then((ids) => ids.length),
@@ -170,7 +197,21 @@ export const trainerDashboard = asyncHandler(async (req, res) => {
     commentTotal(match),
     openBatches({ scopeTrainerId }),
     roleSplitStats({ trainerId: scopeTrainerId }),
+    ratingDistribution(match),
+    parameterBySubject(match),
+    sessionRanking(match),
+    commentDepth(match),
   ]);
+
+  /* Collection health reads Batch directly rather than through `match`, so it
+     has to be told the mentor's batches explicitly — otherwise it would report
+     turnout for cohorts they are not on. */
+  const myPairs = await trainerSessionPairs(scopeTrainerId);
+  const health = await collectionHealth({
+    scopeBatchIds: [...new Set(myPairs.map((p) => String(p.batch)))].map(
+      (id) => new mongoose.Types.ObjectId(id)
+    ),
+  });
 
   res.json({
     kpis: {
@@ -185,6 +226,7 @@ export const trainerDashboard = asyncHandler(async (req, res) => {
     },
     roleSplit,
     charts: { perParameter, trend, volumePerClass: volume },
+    stats: { distribution, heatmap, ranking, comments: commentStats, health },
     openBatchList,
     comments,
     commentTotal: totalComments,

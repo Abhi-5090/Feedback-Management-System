@@ -127,6 +127,41 @@ const P = {
   ),
   activity: <path d="M3 12h3.5l2.5-7 4.5 14 2.5-7H21" />,
 
+  // ── Analytics ────────────────────────────────────────────────────────────
+  /* A matrix of cells — the subject × parameter crossing. */
+  grid: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1.4" />
+      <rect x="14" y="3" width="7" height="7" rx="1.4" />
+      <rect x="3" y="14" width="7" height="7" rx="1.4" />
+      <rect x="14" y="14" width="7" height="7" rx="1.4" />
+    </>
+  ),
+  trophy: (
+    <>
+      <path d="M7 4h10v5a5 5 0 0 1-10 0z" />
+      <path d="M7 5.5H4.5v1A3.5 3.5 0 0 0 8 10" />
+      <path d="M17 5.5h2.5v1A3.5 3.5 0 0 1 16 10" />
+      <path d="M12 14v3" />
+      <path d="M8.5 20h7l-.7-3h-5.6z" />
+    </>
+  ),
+  /* Concentric rings — coverage against a target. */
+  target: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4.5" />
+      <circle cx="12" cy="12" r="1" />
+    </>
+  ),
+  /* The mirror of trendUp, sharing its geometry so the pair reads as a pair. */
+  trendDown: (
+    <>
+      <path d="M3 6.5l5.5 5.5 3.5-3.5L20.5 17" />
+      <path d="M15.5 17h5v-5" />
+    </>
+  ),
+
   // ── State / status ───────────────────────────────────────────────────────
   lock: (
     <>

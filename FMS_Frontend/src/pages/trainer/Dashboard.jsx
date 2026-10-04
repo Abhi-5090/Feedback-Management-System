@@ -17,6 +17,10 @@ import Icon from '../../components/Icon.jsx';
 import ParamBarChart from '../../components/charts/ParamBarChart.jsx';
 import TrendLineChart from '../../components/charts/TrendLineChart.jsx';
 import VolumeBarChart from '../../components/charts/VolumeBarChart.jsx';
+import RatingDistribution from '../../components/analytics/RatingDistribution.jsx';
+import ParameterHeatmap from '../../components/analytics/ParameterHeatmap.jsx';
+import SessionRanking from '../../components/analytics/SessionRanking.jsx';
+import CollectionHealth from '../../components/analytics/CollectionHealth.jsx';
 
 function DashboardSkeleton() {
   return (
@@ -121,6 +125,18 @@ export default function TrainerDashboard() {
               <RoleSplitPanel split={data.roleSplit} />
             </Card>
           )}
+
+          {/* The same analysis a head of department gets, over this mentor's
+              own sessions. A mentor who can only see their mean has no way to
+              tell a room that was uniformly content from one that split. */}
+          <div className="grid gap-5 lg:grid-cols-2">
+            <RatingDistribution data={data.stats?.distribution} />
+            <CollectionHealth data={data.stats?.health} />
+          </div>
+
+          <SessionRanking data={data.stats?.ranking} />
+
+          <ParameterHeatmap data={data.stats?.heatmap} />
 
           <div className="grid gap-5 lg:grid-cols-2">
             <Card
