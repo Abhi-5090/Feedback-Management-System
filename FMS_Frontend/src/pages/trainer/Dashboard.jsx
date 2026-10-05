@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnalyticsAPI, DashboardAPI } from '../../api/endpoints.js';
 import { usePolling } from '../../hooks/usePolling.js';
+import { usePhaseScope } from '../../phase/PhaseScope.jsx';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import StatTile, { ratingTone } from '../../components/StatTile.jsx';
@@ -42,6 +43,7 @@ function DashboardSkeleton() {
 export default function TrainerDashboard() {
   const { user } = useAuth();
   const toast = useToast();
+  const { isAll: allPhases, label: phaseLabel } = usePhaseScope();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   /* Batch and subject options for the comment filters. Fetched once — the
@@ -131,7 +133,7 @@ export default function TrainerDashboard() {
               tell a room that was uniformly content from one that split. */}
           <div className="grid gap-5 lg:grid-cols-2">
             <RatingDistribution data={data.stats?.distribution} />
-            <CollectionHealth data={data.stats?.health} />
+            <CollectionHealth data={data.stats?.health} phaseLabel={allPhases ? null : phaseLabel} />
           </div>
 
           <SessionRanking data={data.stats?.ranking} />

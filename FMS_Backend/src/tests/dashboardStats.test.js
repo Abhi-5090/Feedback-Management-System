@@ -15,7 +15,10 @@ import {
 } from './helpers.js';
 import {
   ratingDistribution, parameterBySubject, sessionRanking, commentDepth, collectionHealth,
+  coverageTotals,
 } from '../services/dashboardStatsService.js';
+import { Phase } from '../models/Phase.js';
+import { Feedback } from '../models/Feedback.js';
 import { buildScopedMatch } from '../services/analyticsService.js';
 
 jest.setTimeout(60_000);
@@ -217,5 +220,93 @@ describe('the mentor dashboard reports these over their own sessions only', () =
     expect(res.status).toBe(200);
     expect(res.body.stats.distribution.average).toBe(5);
     expect(res.body.stats.health.map((b) => b.name)).toEqual(['Coding Cohort']);
+  });
+});
+
+describe('collection health under a phase filter', () => {
+  /**
+   * The bug: selecting a phase that had collected nothing still showed the
+   * PREVIOUS phase's turnout. Response rate and the per-cohort panel both
+   * queried Batch directly and never saw the phase, so a dashboard scoped to
+   * November reported September's 57.8% and looked like work already done.
+   */
+  let phase1, phase2;
+
+  const makePhase = (name, startsAt, endsAt) =>
+    Phase.create({ name, code: name.toLowerCase().replace(/\W+/g, '-'), startsAt, endsAt, status: 'open' });
+
+  beforeEach(async () => {
+    phase1 = await makePhase('Phase 1', new Date('2026-01-01'), new Date('2026-02-01'));
+    phase2 = await makePhase('Phase 2', new Date('2026-02-01'), new Date('2026-03-01'));
+    await submitMany(codingBatch, [coding._id], { n: 5, stars: 5 });
+    // Stamp everything collected so far onto phase 1.
+    await Feedback.updateMany({}, { $set: { phase: phase1._id } });
+  });
+
+  test('a phase that has collected nothing reports nothing, not the last one', async () => {
+    const h2 = await collectionHealth({ phase: phase2 });
+    expect(h2).toEqual([]);
+    expect(coverageTotals(h2)).toMatchObject({ expected: 0, submitted: 0, responseRate: 0 });
+
+    // And the phase that DID collect is unaffected.
+    const h1 = await collectionHealth({ phase: phase1 });
+    expect(h1).toHaveLength(1);
+    expect(h1[0]).toMatchObject({ name: 'Coding Cohort', answered: 5 });
+  });
+
+  test('a cohort collected in another phase does not appear at 0%', async () => {
+    /* Listing it at 0% would read as a cohort that refused to answer, which is
+       a different and much worse claim than "this round has not started". */
+    const names = (await collectionHealth({ phase: phase2 })).map((b) => b.name);
+    expect(names).not.toContain('Coding Cohort');
+  });
+
+  test('a cohort open in the CURRENT phase appears, so the panel fills in live', async () => {
+    /* The batch-by-batch view: unlock a cohort and it should show up straight
+       away with its turnout climbing, not only once collection is finished. */
+    await request(target())
+      .post(`/api/batches/${genaiBatch._id}/unlock`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ expectedCount: 50 });
+
+    const live = await collectionHealth({ phase: phase2, phaseIsCurrent: true });
+    expect(live.map((b) => b.name)).toContain('GenAI Cohort');
+    expect(live.find((b) => b.name === 'GenAI Cohort')).toMatchObject({ answered: 0, rate: 0 });
+
+    // Not current → an open cohort is not pulled into a phase that is not collecting.
+    const notLive = await collectionHealth({ phase: phase2, phaseIsCurrent: false });
+    expect(notLive.map((b) => b.name)).not.toContain('GenAI Cohort');
+  });
+
+  test('with no phase selected the overall figures are unchanged', async () => {
+    const all = await collectionHealth({});
+    expect(all.map((b) => b.name).sort()).toEqual(['Coding Cohort', 'GenAI Cohort']);
+  });
+
+  test('the headline rate always equals the panel it summarises', async () => {
+    /* One computation, deliberately: these were two aggregations over two
+       definitions, which is how the KPI and the panel came to disagree. */
+    for (const opts of [{}, { phase: phase1 }, { phase: phase2 }]) {
+      const h = await collectionHealth(opts);
+      const c = coverageTotals(h);
+      expect(c.submitted).toBe(h.reduce((n, b) => n + b.answered, 0));
+      expect(c.expected).toBe(h.reduce((n, b) => n + b.expected, 0));
+    }
+  });
+
+  test('the admin dashboard reports the phase it was asked for', async () => {
+    const res = await request(target())
+      .get(`/api/dashboard/admin?phase=${phase2._id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.stats.health).toEqual([]);
+    expect(res.body.kpis.expectedResponses).toBe(0);
+    expect(res.body.kpis.responseRate).toBe(0);
+
+    const one = await request(target())
+      .get(`/api/dashboard/admin?phase=${phase1._id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(one.body.stats.health).toHaveLength(1);
+    expect(one.body.kpis.submittedResponses).toBe(5);
   });
 });

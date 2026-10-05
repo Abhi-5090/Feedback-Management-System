@@ -295,10 +295,38 @@ export async function commentDepth(match) {
  * batch writes two rows per student and summing would double its apparent
  * turnout. (This is the same arithmetic that makes 1259 rows and 993 students
  * both correct figures.)
+ *
+ * PHASE. When a phase is selected this must answer "how is THAT collection
+ * going", not "how did collection go, ever". Those differ completely the
+ * moment a second phase is opened: without the filter, selecting a phase that
+ * has collected nothing still reported the previous phase's turnout, so a
+ * dashboard scoped to November showed September's 57.8% and looked like work
+ * that had already happened.
+ *
+ * A cohort belongs to a phase's collection when it has responses stamped with
+ * that phase, or when it is open right now and that phase is the one currently
+ * claiming submissions. The second half is what makes the panel fill in batch
+ * by batch as a round is collected, rather than appearing all at once at the
+ * end; the first is what keeps a finished phase readable afterwards.
  */
-export async function collectionHealth({ scopeBatchIds = null, limit = 0 } = {}) {
+export async function collectionHealth({
+  scopeBatchIds = null,
+  phase = null,
+  phaseIsCurrent = false,
+  limit = 0,
+} = {}) {
   const filter = { archivedAt: null, expectedCount: { $gt: 0 } };
   if (scopeBatchIds) filter._id = { $in: scopeBatchIds };
+
+  /* The lookup counts only this phase's rows. `phase: null` is a real choice
+     (feedback belonging to no exercise), so an explicit 'unassigned' is
+     matched as such rather than treated as "no filter". */
+  const feedbackMatch =
+    phase === 'unassigned'
+      ? [{ $match: { phase: null } }]
+      : phase
+        ? [{ $match: { phase: phase._id } }]
+        : [];
 
   const rows = await Batch.aggregate([
     { $match: filter },
@@ -308,7 +336,7 @@ export async function collectionHealth({ scopeBatchIds = null, limit = 0 } = {})
         localField: '_id',
         foreignField: 'batch',
         as: 'rows',
-        pipeline: [{ $group: { _id: '$class', n: { $sum: 1 } } }],
+        pipeline: [...feedbackMatch, { $group: { _id: '$class', n: { $sum: 1 } } }],
       },
     },
     {
@@ -337,7 +365,33 @@ export async function collectionHealth({ scopeBatchIds = null, limit = 0 } = {})
         rate: b.expectedCount ? round((answered / b.expectedCount) * 100, 1) : 0,
       };
     })
+    /* Under a phase, a cohort that has not been collected in it is not at 0% —
+       it is not part of this exercise at all, and listing it at 0% would read
+       as a failure to respond rather than a round that has not started. The
+       exception is a cohort open right now, which IS this phase's collection
+       in progress and should show its turnout climbing. */
+    .filter((b) => !phase || b.answered > 0 || (phaseIsCurrent && b.status === 'open'))
     .sort((a, b) => a.rate - b.rate);
 
   return limit ? shaped.slice(0, limit) : shaped;
+}
+
+/**
+ * The institution-wide response rate, derived from the very same rows the
+ * per-cohort panel is drawn from.
+ *
+ * Kept as one computation deliberately. The headline and the breakdown under
+ * it were previously two separate aggregations over two different definitions,
+ * which is how the KPI and the panel came to disagree once a phase was
+ * selected — and a dashboard whose summary contradicts its own detail teaches
+ * the reader to trust neither.
+ */
+export function coverageTotals(health) {
+  const expected = health.reduce((n, b) => n + b.expected, 0);
+  const submitted = health.reduce((n, b) => n + b.answered, 0);
+  return {
+    expected,
+    submitted,
+    responseRate: expected ? round((submitted / expected) * 100, 1) : 0,
+  };
 }

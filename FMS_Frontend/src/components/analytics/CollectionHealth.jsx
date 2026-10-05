@@ -15,11 +15,18 @@ const tone = (r) =>
  * Sorted by the worst, because a list sorted by name is a reference table and
  * a list sorted by severity is a worklist.
  */
-export default function CollectionHealth({ data, limit = 8 }) {
+export default function CollectionHealth({ data, limit = 8, phaseLabel = null }) {
   if (!data?.length) {
+    /* Distinguish "this round has not started" from "nothing is configured".
+       Both are empty; only one is a problem, and reporting a phase that has
+       collected nothing as 0% reads as a cohort that refused to answer. */
     return (
-      <Card title="Collection health" icon="target">
-        <p className="p-5 text-sm text-muted">No cohorts with an expected size set.</p>
+      <Card title="Collection health" icon="target" subtitle={phaseLabel || undefined}>
+        <p className="p-5 text-sm text-muted">
+          {phaseLabel
+            ? `No feedback has been collected in ${phaseLabel} yet. Cohorts appear here as each one is unlocked and starts receiving responses.`
+            : 'No cohorts with an expected size set.'}
+        </p>
       </Card>
     );
   }
@@ -33,7 +40,7 @@ export default function CollectionHealth({ data, limit = 8 }) {
     <Card
       title="Collection health"
       icon="target"
-      subtitle={`${totalAnswered.toLocaleString()} of ${totalExpected.toLocaleString()} students responded — ${overall}% overall`}
+      subtitle={`${totalAnswered.toLocaleString()} of ${totalExpected.toLocaleString()} students responded — ${overall}%${phaseLabel ? ` in ${phaseLabel}` : ' overall'}`}
       hint="How much of each cohort actually answered. A rating drawn from a small share of a cohort represents the people who chose to reply, not the cohort."
     >
       <ul className="divide-y divide-line/60">

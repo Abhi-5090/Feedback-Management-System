@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { AnalyticsAPI, DashboardAPI } from '../../api/endpoints.js';
 import { usePolling } from '../../hooks/usePolling.js';
+import { usePhaseScope } from '../../phase/PhaseScope.jsx';
 import { useToast } from '../../components/Toast.jsx';
 import StatTile, { ratingTone, rateTone } from '../../components/StatTile.jsx';
 import Card from '../../components/Card.jsx';
@@ -38,6 +39,7 @@ function DashboardSkeleton() {
 
 export default function AdminDashboard() {
   const toast = useToast();
+  const { isAll: allPhases, label: phaseLabel } = usePhaseScope();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   /* Batch and subject options for the comment filters. Fetched once — the
@@ -138,14 +140,24 @@ export default function AdminDashboard() {
             {/* A raw feedback count cannot tell you whether a survey landed.
                 812 responses is excellent from 900 students and poor from
                 1,740 — so the rate is shown alongside the total. */}
+            {/* A phase with nothing collected has no response rate — it has
+                not been asked yet. Showing 0% would read as a cohort that
+                refused to answer, which is a different and much worse fact
+                than "this round has not started". */}
             <StatTile
               label="Response rate"
-              value={`${k.responseRate ?? 0}%`}
+              value={k.expectedResponses ? `${k.responseRate ?? 0}%` : '—'}
               icon="activity"
-              tone={rateTone(k.responseRate)}
+              tone={k.expectedResponses ? rateTone(k.responseRate) : 'neutral'}
               delay={240}
-              sub={`${k.submittedResponses ?? 0} of ${k.expectedResponses ?? 0}`}
-              hint="Students who have responded, against the expected cohort sizes of every batch with a cap set. This is the number that tells you whether a survey actually reached people."
+              sub={
+                k.expectedResponses
+                  ? `${k.submittedResponses ?? 0} of ${k.expectedResponses ?? 0}`
+                  : allPhases
+                    ? 'no cohort sizes set'
+                    : 'not collected yet'
+              }
+              hint="Students who have responded, against the expected cohort sizes of every batch with a cap set. Scoped to the selected phase, so a round that has not started reads as nothing rather than as zero."
             />
           </div>
 
@@ -157,7 +169,7 @@ export default function AdminDashboard() {
              cohort that 4.2 actually speaks for. */}
           <div className="grid gap-5 lg:grid-cols-2">
             <RatingDistribution data={data.stats?.distribution} />
-            <CollectionHealth data={data.stats?.health} />
+            <CollectionHealth data={data.stats?.health} phaseLabel={allPhases ? null : phaseLabel} />
           </div>
 
           {/* Then the diagnosis: which session, and which parameter of which
