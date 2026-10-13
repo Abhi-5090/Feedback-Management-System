@@ -166,5 +166,8 @@ export const PlatformAPI = {
   organizations: () => api.get('/platform/organizations').then((r) => r.data),
   create: (body) => api.post('/platform/organizations', body).then((r) => r.data),
   update: (id, body) => api.patch(`/platform/organizations/${id}`, body).then((r) => r.data),
+  get: (id) => api.get(`/platform/organizations/${id}`).then((r) => r.data),
   addAdmin: (id, body) => api.post(`/platform/organizations/${id}/admins`, body).then((r) => r.data),
+  resetAdmin: (id, userId) =>
+    api.post(`/platform/organizations/${id}/admins/${userId}/reset-password`).then((r) => r.data),
 };

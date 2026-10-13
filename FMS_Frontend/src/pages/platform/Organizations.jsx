@@ -9,6 +9,7 @@ import Modal from '../../components/Modal.jsx';
 import Icon from '../../components/Icon.jsx';
 import StatTile from '../../components/StatTile.jsx';
 import { SkeletonBlock } from '../../components/Spinner.jsx';
+import OneTimeSecret from '../../components/OneTimeSecret.jsx';
 
 const slugify = (s) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
@@ -65,16 +66,6 @@ export default function Organizations() {
     }
   };
 
-  const toggleStatus = async (o) => {
-    try {
-      await PlatformAPI.update(o.id, { status: o.status === 'active' ? 'suspended' : 'active' });
-      toast.success(`${o.name} ${o.status === 'active' ? 'suspended' : 'reactivated'}`);
-      load();
-    } catch (e) {
-      toast.error(e.message);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <Hero
@@ -125,12 +116,17 @@ export default function Organizations() {
                 <div className="flex shrink-0 gap-2">
                   <button
                     className="btn-outline !py-1.5 text-xs"
+                    onClick={() => navigate(`/platform/organizations/${o.id}`)}
+                  >
+                    Manage
+                  </button>
+                  <button
+                    className="btn-ghost !py-1.5 text-xs"
+                    disabled={o.status === 'suspended'}
+                    title={o.status === 'suspended' ? 'Reactivate it first' : undefined}
                     onClick={() => { setOrg(o.id); navigate('/admin'); }}
                   >
-                    Open
-                  </button>
-                  <button className="btn-ghost !py-1.5 text-xs" onClick={() => toggleStatus(o)}>
-                    {o.status === 'active' ? 'Suspend' : 'Reactivate'}
+                    Open workspace
                   </button>
                 </div>
               </li>
@@ -183,33 +179,13 @@ export default function Organizations() {
         </form>
       </Modal>
 
-      <Modal open={Boolean(issued)} onClose={() => setIssued(null)} title="Organization created"
-        description="Copy the password now — it cannot be shown again.">
-        {issued && (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-line bg-surface-2/60 p-4">
-              <p className="text-sm font-semibold text-ink">{issued.organization.name}</p>
-              <p className="mt-0.5 text-[11px] text-muted">{issued.admin.name} · {issued.admin.email}</p>
-            </div>
-            <div>
-              <p className="label">One-time password</p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 truncate rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-sm text-ink">
-                  {issued.temporaryPassword}
-                </code>
-                <button className="btn-outline !py-2"
-                  onClick={() => { navigator.clipboard?.writeText(issued.temporaryPassword); toast.success('Copied'); }}>
-                  <Icon name="copy" size={15} />
-                </button>
-              </div>
-              <p className="hint">They must choose a new one before they can use the account.</p>
-            </div>
-            <div className="flex justify-end">
-              <button className="btn-primary" onClick={() => setIssued(null)}>Done</button>
-            </div>
-          </div>
-        )}
-      </Modal>
+      <OneTimeSecret
+        open={Boolean(issued)}
+        onClose={() => setIssued(null)}
+        title="Organization created"
+        who={issued?.admin}
+        secret={issued?.temporaryPassword}
+      />
     </div>
   );
 }

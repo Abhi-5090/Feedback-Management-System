@@ -35,6 +35,7 @@ const AdminBatchFeedback = lazy(() => import('./pages/admin/BatchFeedback.jsx'))
 const TrainerLayout = lazy(() => import('./layouts/TrainerLayout.jsx'));
 const PlatformLayout = lazy(() => import('./layouts/PlatformLayout.jsx'));
 const Organizations = lazy(() => import('./pages/platform/Organizations.jsx'));
+const OrganizationDetail = lazy(() => import('./pages/platform/OrganizationDetail.jsx'));
 const TrainerDashboard = lazy(() => import('./pages/trainer/Dashboard.jsx'));
 const TrainerClassFeedback = lazy(() => import('./pages/trainer/ClassFeedback.jsx'));
 const TrainerBatchFeedback = lazy(() => import('./pages/trainer/BatchFeedback.jsx'));
@@ -78,6 +79,7 @@ export default function App() {
           }
         >
           <Route index element={<Organizations />} />
+          <Route path="organizations/:id" element={<OrganizationDetail />} />
           <Route path="settings" element={<Settings />} />
         </Route>
 

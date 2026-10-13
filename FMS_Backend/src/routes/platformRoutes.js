@@ -13,6 +13,8 @@ import {
   updateOrganization,
   addOrganizationAdmin,
   platformOverview,
+  getOrganization,
+  resetAdminPassword,
 } from '../controllers/organizationController.js';
 
 /**
@@ -31,6 +33,8 @@ router.get('/overview', platformOverview);
 router.get('/organizations', listOrganizations);
 router.post('/organizations', validate(createOrganizationSchema), createOrganization);
 router.patch('/organizations/:id', validate(updateOrganizationSchema), updateOrganization);
+router.get('/organizations/:id', getOrganization);
 router.post('/organizations/:id/admins', validate(addOrgAdminSchema), addOrganizationAdmin);
+router.post('/organizations/:id/admins/:userId/reset-password', resetAdminPassword);
 
 export default router;

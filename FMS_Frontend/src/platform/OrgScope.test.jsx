@@ -84,19 +84,53 @@ describe('organization scope', () => {
   test('a member sees no switcher at all', () => {
     currentUser = { role: 'trainer' };
     renderWith(<OrgSwitcher />);
-    expect(screen.queryByLabelText('Organization')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Organization:/ })).not.toBeInTheDocument();
   });
 
   test('a super admin starts on the platform view and can choose a tenant', async () => {
     currentUser = { role: 'superadmin' };
     renderWith(<><OrgSwitcher /><Probe /></>);
 
-    await waitFor(() => expect(screen.getByLabelText('Organization')).toBeInTheDocument());
+    const trigger = await screen.findByRole('button', { name: /Organization: All organizations/ });
     expect(screen.getByTestId('probe')).toHaveTextContent('true||true');
 
-    await userEvent.selectOptions(screen.getByLabelText('Organization'), 'o1');
+    /* The list is not in the document until it is opened — that is the point
+       of the control. A tenant this consequential should not be changed by a
+       stray scroll over a collapsed native select. */
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
+    await userEvent.click(trigger);
+    await userEvent.click(await screen.findByRole('option', { name: /NCET/ }));
+
     await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('true|o1|false'));
     expect(setOrganizationHeader).toHaveBeenLastCalledWith('o1');
+    /* Closes once chosen, rather than leaving the panel hanging open. Awaited
+       because the exit animation keeps it mounted for a beat after the click. */
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument());
+  });
+
+  test('it opens and chooses by keyboard alone', async () => {
+    currentUser = { role: 'superadmin' };
+    renderWith(<><OrgSwitcher /><Probe /></>);
+    const trigger = await screen.findByRole('button', { name: /Organization:/ });
+
+    trigger.focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(await screen.findByRole('listbox')).toBeInTheDocument();
+
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('true|o1|false'));
+  });
+
+  test('Escape closes it without changing anything', async () => {
+    currentUser = { role: 'superadmin' };
+    renderWith(<><OrgSwitcher /><Probe /></>);
+    await userEvent.click(await screen.findByRole('button', { name: /Organization:/ }));
+    expect(await screen.findByRole('listbox')).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument());
+    expect(screen.getByTestId('probe')).toHaveTextContent('true||true');
   });
 
   test('the choice survives a reload', async () => {
@@ -115,10 +149,21 @@ describe('organization scope', () => {
     await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('true||true'));
   });
 
-  test('a suspended organization is labelled in the picker', async () => {
+  test('a suspended organization is marked, not silently identical', async () => {
     currentUser = { role: 'superadmin' };
     renderWith(<OrgSwitcher />);
-    await waitFor(() => expect(screen.getByLabelText('Organization')).toBeInTheDocument());
-    expect(screen.getByRole('option', { name: /Other Institute — suspended/ })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: /Organization:/ }));
+    const option = await screen.findByRole('option', { name: /Other Institute/ });
+    expect(option).toHaveTextContent('Suspended');
+  });
+
+  test('the current organization is the one marked selected', async () => {
+    localStorage.setItem('fms.organization', 'o1');
+    currentUser = { role: 'superadmin' };
+    renderWith(<OrgSwitcher />);
+    await userEvent.click(await screen.findByRole('button', { name: /Organization: NCET/ }));
+    const selected = await screen.findAllByRole('option', { selected: true });
+    expect(selected).toHaveLength(1);
+    expect(selected[0]).toHaveTextContent('NCET');
   });
 });

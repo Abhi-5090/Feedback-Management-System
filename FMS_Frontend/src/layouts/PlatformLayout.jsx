@@ -8,9 +8,13 @@ import AppShell from './AppShell.jsx';
  * by choosing an organization. Rebuilding those here would give the product
  * two copies of every page to keep in step, and they would not stay in step.
  */
+/* Deliberately short. Everything about running an institution — mentors,
+   cohorts, feedback, phases — lives in the admin screens, which a super admin
+   reaches by choosing an organization from the switcher. Mirroring those pages
+   here would give the product two copies of each to keep in step. */
 const nav = [
   { to: '/platform', label: 'Organizations', icon: 'building', end: true },
-  { to: '/platform/settings', label: 'Settings', icon: 'sliders' },
+  { to: '/platform/settings', label: 'My account', icon: 'sliders' },
 ];
 
 export default function PlatformLayout() {

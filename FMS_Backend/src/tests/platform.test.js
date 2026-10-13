@@ -132,6 +132,71 @@ describe('platform actions are audited', () => {
   });
 });
 
+describe('one organization in detail', () => {
+  let orgId;
+  beforeEach(async () => {
+    const res = await asSuper(request(target()).post('/api/platform/organizations')).send({
+      name: 'Detail Institute', slug: 'detail-institute',
+      adminName: 'Detail Admin', adminEmail: 'admin@detail.test',
+    });
+    orgId = res.body.organization.id;
+  });
+
+  test('lists its people and its size', async () => {
+    const res = await asSuper(request(target()).get(`/api/platform/organizations/${orgId}`));
+    expect(res.status).toBe(200);
+    expect(res.body.admins).toHaveLength(1);
+    expect(res.body.admins[0].email).toBe('admin@detail.test');
+    /* The commonest reason an organization looks set up and is not: the admin
+       was created and never signed in. */
+    expect(res.body.admins[0].pendingFirstSignIn).toBe(true);
+    expect(res.body.organization.responses).toBe(0);
+  });
+
+  test('its people are its own — nobody else\'s appear', async () => {
+    const res = await asSuper(request(target()).get(`/api/platform/organizations/${orgId}`));
+    const emails = [...res.body.admins, ...res.body.trainers].map((p) => p.email);
+    expect(emails).not.toContain('admin@test.com'); // NCET's admin
+  });
+
+  test('a second admin can be added and can sign in', async () => {
+    const add = await asSuper(
+      request(target()).post(`/api/platform/organizations/${orgId}/admins`)
+    ).send({ name: 'Second Admin', email: 'second@detail.test' });
+    expect(add.status).toBe(201);
+
+    const login = await request(target()).post('/api/auth/login')
+      .send({ email: 'second@detail.test', password: add.body.temporaryPassword });
+    expect(login.status).toBe(200);
+
+    const after = await asSuper(request(target()).get(`/api/platform/organizations/${orgId}`));
+    expect(after.body.admins).toHaveLength(2);
+  });
+
+  test('resetting an admin password issues a new one and kills old sessions', async () => {
+    const created = await asSuper(request(target()).get(`/api/platform/organizations/${orgId}`));
+    const adminUserId = created.body.admins[0].id;
+
+    const reset = await asSuper(
+      request(target()).post(`/api/platform/organizations/${orgId}/admins/${adminUserId}/reset-password`)
+    );
+    expect(reset.status).toBe(200);
+    expect(reset.body.temporaryPassword).toEqual(expect.any(String));
+
+    const login = await request(target()).post('/api/auth/login')
+      .send({ email: 'admin@detail.test', password: reset.body.temporaryPassword });
+    expect(login.status).toBe(200);
+  });
+
+  test('an admin of another organization cannot be reset through this one', async () => {
+    const ncetAdmin = await runUnscoped(() => User.findOne({ email: 'admin@test.com' }).lean());
+    const res = await asSuper(
+      request(target()).post(`/api/platform/organizations/${orgId}/admins/${ncetAdmin._id}/reset-password`)
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('permissions', () => {
   test('an organization admin is refused every platform route', async () => {
     const routes = [

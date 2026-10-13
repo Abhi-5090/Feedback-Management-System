@@ -205,6 +205,87 @@ export const addOrganizationAdmin = asyncHandler(async (req, res) => {
 });
 
 /**
+ * GET /api/v1/platform/organizations/:id — one tenant in full.
+ *
+ * Its people as well as its size, because the question a platform operator
+ * actually arrives with is "who can get into this one, and should they still
+ * be able to" — and that is not answerable from a row in a list.
+ */
+export const getOrganization = asyncHandler(async (req, res) => {
+  const org = await Organization.findById(req.params.id).lean();
+  if (!org) throw notFound('Organization not found');
+
+  const [people, classes, batches, responses, lastResponse] = await Promise.all([
+    User.find({ organization: org._id })
+      .select('name email role isActive mustChangePassword createdAt')
+      .sort({ role: 1, name: 1 })
+      .lean(),
+    Class.countDocuments({ organization: org._id, archivedAt: null }),
+    Batch.countDocuments({ organization: org._id, archivedAt: null }),
+    Feedback.countDocuments({ organization: org._id }),
+    Feedback.findOne({ organization: org._id }).sort({ createdAt: -1 }).select('createdAt').lean(),
+  ]);
+
+  const shapePerson = (u) => ({
+    id: String(u._id),
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    isActive: u.isActive,
+    /* Surfaced because an admin who has never signed in is the commonest
+       reason an organization looks set up and is not. */
+    pendingFirstSignIn: Boolean(u.mustChangePassword),
+    createdAt: u.createdAt,
+  });
+
+  res.json({
+    organization: shape(org, {
+      classes,
+      batches,
+      responses,
+      admins: people.filter((u) => u.role === 'admin').length,
+      trainers: people.filter((u) => u.role === 'trainer').length,
+      lastResponseAt: lastResponse?.createdAt || null,
+    }),
+    admins: people.filter((u) => u.role === 'admin').map(shapePerson),
+    trainers: people.filter((u) => u.role === 'trainer').map(shapePerson),
+  });
+});
+
+/**
+ * POST /api/v1/platform/organizations/:id/admins/:userId/reset-password
+ *
+ * Issues a fresh one-time password for an admin who has lost theirs. The old
+ * one stops working immediately, and every session signed in with it is
+ * revoked — a password being reissued usually means somebody could not get in,
+ * and occasionally means somebody got in who should not have.
+ */
+export const resetAdminPassword = asyncHandler(async (req, res) => {
+  const org = await Organization.findById(req.params.id);
+  if (!org) throw notFound('Organization not found');
+
+  const user = await User.findOne({ _id: req.params.userId, organization: org._id });
+  if (!user) throw notFound('That admin is not in this organization');
+  if (user.role !== 'admin') throw badRequest('Only an organization admin can be reset here');
+
+  const tempPassword = generateStrongPassword();
+  user.passwordHash = await hashPassword(tempPassword);
+  user.mustChangePassword = true;
+  user.tokenVersion = (user.tokenVersion || 0) + 1; // signs out existing sessions
+  await user.save();
+
+  recordAudit(req, {
+    action: 'organization.admin.reset_password',
+    entity: 'organization',
+    entityId: org._id,
+    entityName: org.name,
+    meta: { adminEmail: user.email },
+  });
+
+  res.json({ admin: { id: String(user._id), name: user.name, email: user.email }, temporaryPassword: tempPassword });
+});
+
+/**
  * GET /api/v1/platform/overview — the platform dashboard.
  * Totals across every tenant, plus the per-organization breakdown that the
  * organization picker is built from.
