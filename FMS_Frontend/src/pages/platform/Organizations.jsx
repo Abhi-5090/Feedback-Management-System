@@ -11,6 +11,7 @@ import StatTile from '../../components/StatTile.jsx';
 import { SkeletonBlock } from '../../components/Spinner.jsx';
 import OneTimeSecret from '../../components/OneTimeSecret.jsx';
 import AdminCredentialFields from '../../components/AdminCredentialFields.jsx';
+import { fetchApiBuild, isMissingFeature } from '../../platform/apiBuild.js';
 
 const slugify = (s) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
@@ -38,6 +39,7 @@ export default function Organizations() {
     password: '', requirePasswordChange: true,
   });
   const [slugEdited, setSlugEdited] = useState(false);
+  const [staleApi, setStaleApi] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -45,6 +47,14 @@ export default function Organizations() {
       setData(orgs.organizations);
       setOverview(ov.kpis);
     } catch (e) {
+      /* A 404 here does not mean the request was wrong — it means the server
+         answering has no such route, i.e. it predates this feature. Saying so,
+         with the commit it is running, turns an inexplicable failure into a
+         deployment you can go and do. */
+      if (isMissingFeature(e)) {
+        setStaleApi((await fetchApiBuild()) || { commit: null });
+        return;
+      }
       toast.error(e.message);
     }
   }, [toast]);
@@ -101,9 +111,31 @@ export default function Organizations() {
         </div>
       )}
 
-      {!data ? (
+      {staleApi && (
+        <section className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.07] p-5">
+          <div className="flex items-start gap-3">
+            <Icon name="alert" size={18} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold text-ink">The API has not been deployed yet</h2>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                This screen is asking for organization management, and the server answering has no such
+                routes — it is running an older build
+                {staleApi.commit && (
+                  <> (<code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-ink">{staleApi.commit}</code>)</>
+                )}
+                . Nothing here is broken: deploy the backend and this page will work.
+              </p>
+              <p className="mt-2 text-[11px] text-subtle">
+                Until then the rest of the product is unaffected — existing organizations carry on as before.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {!data && !staleApi ? (
         <SkeletonBlock height={260} className="rounded-2xl" />
-      ) : (
+      ) : !data ? null : (
         <Card title="All organizations" icon="building" subtitle={`${data.length} on the platform`}>
           <ul className="divide-y divide-line">
             {data.map((o) => (
