@@ -48,6 +48,22 @@ const arg = (name, fallback = null) => {
 };
 const has = (name) => process.argv.includes(`--${name}`);
 
+
+/**
+ * A super admin has NO organization — that is what makes them a platform
+ * account rather than a very powerful member of one tenant. They therefore
+ * look exactly like an unowned row to the adoption sweep, and a re-run would
+ * quietly absorb them into the first organization.
+ *
+ * Found by running the migration twice: the second pass reported "users
+ * adopted: 1" with nothing left to adopt, which was the super admin being
+ * swept in. It was only put back because --superadmin happened to be passed
+ * again; a re-run without that flag would have left the platform account
+ * sitting inside a customer's tenant, listed among their people.
+ */
+const unownedFilter = (Model) =>
+  Model.modelName === 'User' ? { role: { $ne: 'superadmin' } } : {};
+
 export async function migrateToOrganizations({
   orgName = 'NCET',
   slug = 'ncet',
@@ -65,7 +81,7 @@ export async function migrateToOrganizations({
        total, something else is wrong and the operator should stop. */
     for (const [label, Model] of TENANT_MODELS) {
       const [orphan, total] = await Promise.all([
-        Model.countDocuments({ organization: { $in: [null, undefined] } }),
+        Model.countDocuments({ organization: { $in: [null, undefined] }, ...unownedFilter(Model) }),
         Model.countDocuments({}),
       ]);
       report.adopted[label] = { orphan, total };
@@ -80,7 +96,7 @@ export async function migrateToOrganizations({
     if (!dryRun && org) {
       for (const [label, Model] of TENANT_MODELS) {
         const res = await Model.updateMany(
-          { organization: { $in: [null, undefined] } },
+          { organization: { $in: [null, undefined] }, ...unownedFilter(Model) },
           { $set: { organization: org._id } }
         );
         report.adopted[label].modified = res.modifiedCount;

@@ -204,6 +204,22 @@ describe('the migration', () => {
     setAmbientTenant({ organization: first.organizationId });
   });
 
+  test('re-running never absorbs the super admin into an organization', async () => {
+    /* A super admin has no organization, so to the adoption sweep they look
+       exactly like an unowned row. A second run quietly made the platform
+       account a member of the first tenant — found by actually running the
+       migration twice against real data, where the second pass reported
+       "users adopted: 1" with nothing left to adopt. */
+    await runUnscoped(() => Organization.deleteMany({ slug: 'rerun-org' }));
+    await migrateToOrganizations({ orgName: 'Rerun', slug: 'rerun-org' });
+    await migrateToOrganizations({ orgName: 'Rerun', slug: 'rerun-org' });
+
+    const su = await runUnscoped(() => User.findOne({ role: 'superadmin' }).lean());
+    expect(su.organization == null).toBe(true);
+
+    setAmbientTenant({ organization: testOrg._id });
+  });
+
   test('a dry run reports what it would do and writes nothing', async () => {
     await runUnscoped(() => Organization.deleteMany({ slug: 'preview-org' }));
     const report = await migrateToOrganizations({ orgName: 'Preview', slug: 'preview-org', dryRun: true });
