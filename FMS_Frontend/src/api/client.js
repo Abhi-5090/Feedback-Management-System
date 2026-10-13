@@ -75,6 +75,38 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+
+/**
+ * True at most once per RELOAD_WINDOW, across reloads.
+ *
+ * Storage can throw (private browsing, blocked site data) and can come back
+ * empty, so a failure to read is treated as "do not reload": refusing a
+ * recovery reload leaves one stale page, while allowing an unbounded one
+ * leaves a tab that never stops reloading.
+ */
+const RELOAD_KEY = 'fms.pwChangeReloadAt';
+const RELOAD_WINDOW = 10_000;
+
+function shouldReloadForPasswordChange() {
+  try {
+    const last = Number(sessionStorage.getItem(RELOAD_KEY)) || 0;
+    if (Date.now() - last < RELOAD_WINDOW) return false;
+    sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Called once a new password is accepted, so a later lock can still recover. */
+export function clearPasswordChangeReload() {
+  try {
+    sessionStorage.removeItem(RELOAD_KEY);
+  } catch {
+    /* nothing to clear */
+  }
+}
+
 // Normalise error messages so UI can show err.message directly.
 api.interceptors.response.use(
   (res) => res,
@@ -89,9 +121,16 @@ api.interceptors.response.use(
        can come back this way — including a poll that fires seconds after the
        flag is set elsewhere — so reload to let ProtectedRoute show the
        change-password screen rather than leaving a half-dead page behind a
-       wall of failing requests. */
-    if (data?.code === 'PASSWORD_CHANGE_REQUIRED' && !window.__fmsReloading) {
-      window.__fmsReloading = true;
+       wall of failing requests.
+       
+       THE GUARD HAS TO SURVIVE THE RELOAD. It used to be a property on
+       `window`, which the reload destroys along with the rest of the page:
+       the next load made the same request, got the same 403, found the flag
+       missing and reloaded again. That is an endless reload loop, and what it
+       looks like to the person using it is the change-password screen
+       flickering and never settling. sessionStorage outlives the reload and
+       dies with the tab, which is exactly the lifetime this needs. */
+    if (data?.code === 'PASSWORD_CHANGE_REQUIRED' && shouldReloadForPasswordChange()) {
       window.location.reload();
     }
     return Promise.reject(error);

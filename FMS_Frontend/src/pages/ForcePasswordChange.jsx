@@ -3,6 +3,7 @@ import { AuthAPI } from '../api/endpoints.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
 import Icon from '../components/Icon.jsx';
+import { clearPasswordChangeReload } from '../api/client.js';
 
 const MIN = 6;
 
@@ -40,6 +41,10 @@ export default function ForcePasswordChange() {
     setBusy(true);
     try {
       await AuthAPI.updateMe({ currentPassword: current, newPassword: pw });
+      /* The account is unlocked now, so forget that we reloaded for it. A
+         later lock — another admin re-issuing a password — must still be able
+         to recover the page the same way. */
+      clearPasswordChangeReload();
       toast.success('Password set — welcome aboard');
       await refresh();
     } catch (err) {

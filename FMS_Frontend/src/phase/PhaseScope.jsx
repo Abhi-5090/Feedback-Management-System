@@ -44,9 +44,12 @@ export function PhaseScopeProvider({ children }) {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    // Only once signed in — the phase list is an authenticated call, and the
-    // student flow never signs in at all.
-    if (!user) {
+    /* Only once signed in AND unlocked. The phase list is an authenticated
+       call, the student flow never signs in at all, and an account still on an
+       issued password is refused every data route — so fetching while locked
+       buys a certain 403 from a provider that renders above the router, on top
+       of the change-password screen. */
+    if (!user || user.mustChangePassword) {
       setPhases([]);
       setLoaded(false);
       return undefined;

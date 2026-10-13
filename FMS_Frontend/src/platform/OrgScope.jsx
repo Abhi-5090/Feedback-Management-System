@@ -21,7 +21,13 @@ const OrgScopeContext = createContext(null);
 
 export function OrgScopeProvider({ children }) {
   const { user } = useAuth();
-  const isSuper = user?.role === 'superadmin';
+  /* `mustChangePassword` gates every fetch below. An account still on an
+     issued password is refused every data route by design, so fetching from a
+     provider that sits ABOVE the router — and therefore renders even while
+     ProtectedRoute is showing the change-password screen — produces nothing
+     but a guaranteed 403. */
+  const locked = Boolean(user?.mustChangePassword);
+  const isSuper = user?.role === 'superadmin' && !locked;
 
   const [organizations, setOrganizations] = useState([]);
   const [orgId, setOrgId] = useState(() => {

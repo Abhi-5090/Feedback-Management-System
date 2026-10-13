@@ -42,6 +42,33 @@ beforeEach(() => {
 });
 afterEach(() => { currentUser = null; });
 
+describe('a locked account makes no requests at all', () => {
+  test('a super admin on an issued password does not fetch the platform list', async () => {
+    /* These providers sit ABOVE the router, so they render even while
+       ProtectedRoute is showing the change-password screen. Every data route
+       refuses a locked account, and the client reloads on that refusal — so a
+       fetch here is not merely wasted, it is the first step of a reload loop
+       that reads as the password screen flickering endlessly. */
+    currentUser = { role: 'superadmin', mustChangePassword: true };
+    renderWith(<Probe />);
+    await waitFor(() => expect(setOrganizationHeader).toHaveBeenCalled());
+    expect(overview).not.toHaveBeenCalled();
+  });
+
+  test('and sends no organization header while locked', async () => {
+    currentUser = { role: 'superadmin', mustChangePassword: true };
+    localStorage.setItem('fms.organization', 'o1');
+    renderWith(<Probe />);
+    await waitFor(() => expect(setOrganizationHeader).toHaveBeenCalledWith(undefined));
+  });
+
+  test('once unlocked, it fetches normally', async () => {
+    currentUser = { role: 'superadmin', mustChangePassword: false };
+    renderWith(<Probe />);
+    await waitFor(() => expect(overview).toHaveBeenCalled());
+  });
+});
+
 describe('organization scope', () => {
   test('a member never sets an organization header — their tenant is server-side', async () => {
     currentUser = { role: 'admin' };
