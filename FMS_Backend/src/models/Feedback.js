@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../tenancy/tenantPlugin.js';
 
 /**
  * Feedback — one anonymous submission about one class of one batch.
@@ -99,13 +100,15 @@ const feedbackSchema = new mongoose.Schema(
    the trend/recent-comments/date-range queries sort in memory after a full
    scan of the scope — which is exactly what a dashboard polling every 8s
    must not do. */
-feedbackSchema.index({ createdAt: -1 });
-feedbackSchema.index({ batch: 1, createdAt: -1 });
+feedbackSchema.plugin(tenantPlugin);
+
+feedbackSchema.index({ organization: 1, createdAt: -1 });
+feedbackSchema.index({ organization: 1, batch: 1, createdAt: -1 });
 /* Every phase-scoped query is "this phase, then ordered by time" — without the
    createdAt half each one sorts in memory after scanning the whole phase. */
-feedbackSchema.index({ phase: 1, createdAt: -1 });
+feedbackSchema.index({ organization: 1, phase: 1, createdAt: -1 });
 feedbackSchema.index({ phase: 1, batch: 1 });
-feedbackSchema.index({ class: 1, createdAt: -1 });
+feedbackSchema.index({ organization: 1, class: 1, createdAt: -1 });
 feedbackSchema.index({ mainTrainers: 1, createdAt: -1 });
 feedbackSchema.index({ supportTrainers: 1, createdAt: -1 });
 // The batch drill-down always narrows to a class within the batch.

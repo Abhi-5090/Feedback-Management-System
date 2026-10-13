@@ -6,6 +6,8 @@ import { Feedback } from '../models/Feedback.js';
 import { sendMail, digestEmail } from './emailService.js';
 import { round } from './analyticsService.js';
 import { env } from '../config/env.js';
+import { Organization } from '../models/Organization.js';
+import { runUnscoped, runWithTenant } from '../tenancy/tenantContext.js';
 
 /**
  * Scheduled email digests.
@@ -84,8 +86,32 @@ async function buildDigest(user, days) {
   };
 }
 
-/** Send any digests that are due. Safe to call repeatedly. */
+/**
+ * Send any digests that are due, for every organization. Safe to call
+ * repeatedly.
+ *
+ * Runs ONE TENANT AT A TIME rather than sweeping every recipient at once.
+ * A digest is built from feedback figures, and those figures only mean
+ * anything inside one organization — a single pass with no tenant would be
+ * refused by the data layer, and a pass that quietly ran unscoped would email
+ * an institution's admin a summary computed across every customer on the
+ * platform. The loop is what keeps each recipient's numbers their own.
+ */
 export async function runDigests({ force = false } = {}) {
+  const organizations = await runUnscoped(() =>
+    Organization.find({ status: 'active', archivedAt: null }).select('_id').lean()
+  );
+
+  const totals = { considered: 0, sent: 0, skipped: 0, failed: 0 };
+  for (const org of organizations) {
+    const one = await runWithTenant(org._id, () => runDigestsForTenant({ force }));
+    for (const key of Object.keys(totals)) totals[key] += one[key];
+  }
+  return totals;
+}
+
+/** One organization's digests. Must be called inside that tenant's context. */
+async function runDigestsForTenant({ force = false } = {}) {
   const recipients = await User.find({
     isActive: true,
     'digest.enabled': true,

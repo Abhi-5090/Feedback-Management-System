@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../tenancy/tenantPlugin.js';
 
 /**
  * DeviceLock — Layer 2 of the anti-duplicate model (see ARCHITECTURE §4).
@@ -35,6 +36,8 @@ const deviceLockSchema = new mongoose.Schema(
 // The core uniqueness guarantee: one signature per batch. `round` is already
 // folded into signatureHash, so it must NOT be part of the key — including it
 // would let a stale client replay a round-1 signature under round 2.
+deviceLockSchema.plugin(tenantPlugin);
+
 deviceLockSchema.index({ batch: 1, signatureHash: 1 }, { unique: true });
 // "How many devices did round N lock?" for the admin's round summary.
 deviceLockSchema.index({ batch: 1, round: 1 });

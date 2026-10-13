@@ -1,7 +1,9 @@
 import { User } from '../models/User.js';
+import { runUnscoped } from '../tenancy/tenantContext.js';
+import { resolveTenantFor, enterResolvedTenant } from './tenant.js';
 import { AUTH_COOKIE, verifyAuthToken } from '../utils/token.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { unauthorized, forbidden } from '../utils/ApiError.js';
+import { unauthorized, forbidden, badRequest } from '../utils/ApiError.js';
 
 /**
  * requireAuth — verifies the JWT from the httpOnly cookie (falls back to a
@@ -21,7 +23,10 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
     throw unauthorized('Invalid or expired session');
   }
 
-  const user = await User.findById(payload.sub);
+  /* Unscoped by necessity: this IS the lookup that establishes which tenant
+     the request belongs to, so it cannot already be filtered by one. Every
+     query after it runs inside the tenant that resolveTenant then enters. */
+  const user = await runUnscoped(() => User.findById(payload.sub));
   if (!user || !user.isActive) throw unauthorized('Account not found or disabled');
 
   /* Session generation check — the revocation half of the JWT story.
@@ -37,6 +42,16 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
   }
 
   req.user = user;
+
+  /* Tenant resolution is part of authenticating, not a separate step a route
+     can forget to add. Nothing enters a tenant context before this point, so
+     an authenticated route that somehow skipped it would throw on its first
+     query rather than run across every organization. */
+  const org = await resolveTenantFor(req);
+  /* Entered HERE rather than inside the resolver: enterWith() binds to the
+     current execution context, so it must happen on the synchronous path to
+     next() or the handlers downstream never see it. */
+  enterResolvedTenant(org);
   next();
 });
 
@@ -47,6 +62,28 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
  */
 export const requireRole = (...roles) => (req, _res, next) => {
   if (!req.user) return next(unauthorized());
+
+  /* A super admin administering a chosen organization acts as its admin —
+     there is deliberately no second copy of the admin API for them, because
+     two copies drift and only one of them gets the next security fix.
+     
+     THE ORGANIZATION IS MANDATORY HERE. A super admin with none selected is
+     UNSCOPED, and unscoped is correct for the platform routes (list every
+     tenant) and catastrophic for these (return every tenant's feedback under
+     a heading that says "your classes"). Refusing is the only safe reading:
+     there is no sensible organization to guess. */
+  if (req.user.role === 'superadmin' && roles.includes('admin')) {
+    if (!req.organization) {
+      return next(
+        badRequest(
+          'Choose an organization before using the admin screens.',
+          'ORGANIZATION_REQUIRED'
+        )
+      );
+    }
+    return next();
+  }
+
   if (!roles.includes(req.user.role)) return next(forbidden('Insufficient permissions'));
   return next();
 };

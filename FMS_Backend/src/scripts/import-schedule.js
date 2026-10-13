@@ -46,6 +46,7 @@ import { Batch } from '../models/Batch.js';
 import { Parameter } from '../models/Parameter.js';
 import { hashPassword, generateStrongPassword } from '../utils/password.js';
 import { isMain } from '../utils/isMain.js';
+import { resolveScriptTenant } from '../tenancy/scriptTenant.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = path.join(HERE, '..', 'data');
@@ -336,6 +337,7 @@ async function ensureParameters() {
 
 async function main() {
   await connectDB();
+  await resolveScriptTenant();
 
   const [board, roster] = await Promise.all([loadBoard(), loadRoster()]);
   console.log(

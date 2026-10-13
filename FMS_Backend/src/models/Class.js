@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../tenancy/tenantPlugin.js';
 
 /**
  * Class — a named training subject ("C Programming", "GenAI", "Coding").
@@ -31,11 +32,16 @@ const classSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-classSchema.index({ archivedAt: 1, createdAt: -1 });
+classSchema.plugin(tenantPlugin);
+
+classSchema.index({ organization: 1, archivedAt: 1, createdAt: -1 });
 // Subject names are the natural key an admin searches and must not collide
 // among live records. Partial so archived duplicates don't block a re-create.
+/* Unique WITHIN an organization, not across the platform — two institutions
+   may both run a subject called "Python", and the first to create one must not
+   block the second. */
 classSchema.index(
-  { name: 1 },
+  { organization: 1, name: 1 },
   { unique: true, partialFilterExpression: { archivedAt: null } }
 );
 

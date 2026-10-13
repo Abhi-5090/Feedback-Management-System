@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../tenancy/tenantPlugin.js';
 
 /**
  * Parameter — one admin-configurable rating dimension (rated 1–5 stars).
@@ -15,5 +16,7 @@ const parameterSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+parameterSchema.plugin(tenantPlugin);
 
 export const Parameter = mongoose.model('Parameter', parameterSchema);

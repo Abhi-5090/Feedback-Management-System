@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../tenancy/tenantPlugin.js';
 
 /**
  * Phase — one collection exercise, named by the admin.
@@ -67,8 +68,11 @@ const phaseSchema = new mongoose.Schema(
 /* Resolution is "which phase contains this instant", so the range is the key.
    Sorted descending by start, because the newest phase is the one almost every
    lookup wants and it is then the first document examined. */
-phaseSchema.index({ startsAt: -1, endsAt: -1 });
-phaseSchema.index({ code: 1 }, { unique: true });
+phaseSchema.plugin(tenantPlugin);
+
+phaseSchema.index({ organization: 1, startsAt: -1, endsAt: -1 });
+/* Unique per organization: "phase-1" is a name both institutions will use. */
+phaseSchema.index({ organization: 1, code: 1 }, { unique: true });
 
 /** A phase is collecting if it is open and now falls inside its window. */
 phaseSchema.methods.isCollecting = function isCollecting(at = new Date()) {

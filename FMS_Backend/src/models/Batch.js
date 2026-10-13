@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../tenancy/tenantPlugin.js';
 
 /**
  * Batch — a cohort of students in a time window, holding MANY classes, each
@@ -93,14 +94,16 @@ const batchSchema = new mongoose.Schema(
 );
 
 // "Which batches include this class?" drives the class cards.
+batchSchema.plugin(tenantPlugin);
+
 batchSchema.index({ 'classes.class': 1, status: 1 });
 // "Which batches does this mentor work in?" — one index per role, because the
 // trainer views ask the question both ways ("what do I deliver?" vs "what do I
 // assist?") and a single index cannot serve a $or across two fields.
-batchSchema.index({ 'classes.mainTrainers': 1, status: 1 });
-batchSchema.index({ 'classes.supportTrainers': 1, status: 1 });
+batchSchema.index({ organization: 1, 'classes.mainTrainers': 1, status: 1 });
+batchSchema.index({ organization: 1, 'classes.supportTrainers': 1, status: 1 });
 // Archived-batch filtering appears in nearly every list query.
-batchSchema.index({ archivedAt: 1, createdAt: -1 });
+batchSchema.index({ organization: 1, archivedAt: 1, createdAt: -1 });
 
 // Convenience virtual: is the cap reached?
 batchSchema.virtual('isFull').get(function isFull() {

@@ -24,6 +24,7 @@ import { Phase } from '../models/Phase.js';
 import { isMain } from '../utils/isMain.js';
 import { assertDestructiveAllowed, DestructiveRefusal } from '../utils/destructiveGuard.js';
 import { monthRange, assertWindowIsFree, resyncPhaseMembership } from '../services/phaseService.js';
+import { resolveScriptTenant } from '../tenancy/scriptTenant.js';
 
 const DRY = process.argv.includes('--dry-run');
 
@@ -57,6 +58,7 @@ export async function monthsWithFeedback() {
 
 async function main() {
   await connectDB();
+  await resolveScriptTenant();
 
   const months = await monthsWithFeedback();
   const unassigned = months.reduce((s, m) => s + m.responses, 0);

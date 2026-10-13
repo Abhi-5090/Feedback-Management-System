@@ -33,6 +33,8 @@ const AdminClassFeedback = lazy(() => import('./pages/admin/ClassFeedback.jsx'))
 const AdminBatchFeedback = lazy(() => import('./pages/admin/BatchFeedback.jsx'));
 
 const TrainerLayout = lazy(() => import('./layouts/TrainerLayout.jsx'));
+const PlatformLayout = lazy(() => import('./layouts/PlatformLayout.jsx'));
+const Organizations = lazy(() => import('./pages/platform/Organizations.jsx'));
 const TrainerDashboard = lazy(() => import('./pages/trainer/Dashboard.jsx'));
 const TrainerClassFeedback = lazy(() => import('./pages/trainer/ClassFeedback.jsx'));
 const TrainerBatchFeedback = lazy(() => import('./pages/trainer/BatchFeedback.jsx'));
@@ -64,6 +66,20 @@ export default function App() {
 
         {/* Anonymous student feedback — entered via a per-batch link */}
         <Route path="/feedback/:batchId" element={<StudentFlow />} />
+
+        {/* Platform — super admin only. Managing the tenants themselves,
+            which is a different job from administering any one of them. */}
+        <Route
+          path="/platform"
+          element={
+            <ProtectedRoute role="superadmin">
+              <PlatformLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Organizations />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
 
         {/* Admin */}
         <Route

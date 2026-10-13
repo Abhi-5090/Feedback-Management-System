@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../tenancy/tenantPlugin.js';
 
 /**
  * An immutable record of a consequential action.
@@ -37,7 +38,14 @@ const auditSchema = new mongoose.Schema(
   { timestamps: { createdAt: true, updatedAt: false } }
 );
 
-auditSchema.index({ createdAt: -1 });
+/* `required: false`: a platform-level action — creating or suspending an
+   organization — belongs to no tenant, and these are the highest-privilege
+   actions in the product. Requiring an organization made those entries fail
+   validation, and because audit writes are fire-and-forget they failed
+   SILENTLY: the one class of action that most needs a trail had none. */
+auditSchema.plugin(tenantPlugin, { required: false });
+
+auditSchema.index({ organization: 1, createdAt: -1 });
 auditSchema.index({ action: 1, createdAt: -1 });
 auditSchema.index({ entity: 1, entityId: 1, createdAt: -1 });
 auditSchema.index({ actor: 1, createdAt: -1 });

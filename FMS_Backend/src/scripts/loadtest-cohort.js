@@ -30,6 +30,7 @@ import { Feedback } from '../models/Feedback.js';
 import { DeviceLock } from '../models/DeviceLock.js';
 import { Parameter } from '../models/Parameter.js';
 import { isMain } from '../utils/isMain.js';
+import { resolveScriptTenant } from '../tenancy/scriptTenant.js';
 
 const arg = (name, dflt) => {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -150,6 +151,7 @@ async function pool(tasks, limit) {
 
 async function main() {
   await connectDB();
+  await resolveScriptTenant();
 
   // Health check first — a connection-refused error 300 times is not a result.
   const health = await fetch(`${BASE}/api/health`).catch(() => null);

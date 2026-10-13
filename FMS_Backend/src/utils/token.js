@@ -14,7 +14,15 @@ export const DEVICE_COOKIE = 'fms_device';
  */
 export function signAuthToken(user) {
   return jwt.sign(
-    { sub: String(user._id), role: user.role, ver: user.tokenVersion || 0 },
+    {
+      sub: String(user._id),
+      role: user.role,
+      ver: user.tokenVersion || 0,
+      /* Carried so the tenant is fixed at sign-in and travels signed. It is
+         still re-read from the user record on every request — the claim is a
+         convenience for debugging, never the authority. */
+      org: user.organization ? String(user.organization) : null,
+    },
     env.jwtSecret,
     { expiresIn: env.jwtExpiresIn }
   );

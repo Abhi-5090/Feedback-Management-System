@@ -36,6 +36,29 @@ export function setPhaseParam(next) {
   phaseParam = next || undefined;
 }
 
+/**
+ * Which organization a super admin is currently acting on.
+ *
+ * Unlike the phase, this is NOT an allow-listed filter — it is the tenant the
+ * whole request belongs to, so it rides on every call without exception. A
+ * route that forgot it would be answered in the wrong organization, or, since
+ * the server refuses to guess, not answered at all.
+ *
+ * Members (admin, trainer) never set this: their organization comes from their
+ * own account server-side and cannot be influenced from the client.
+ */
+let organizationId;
+export function setOrganizationHeader(next) {
+  organizationId = next || undefined;
+}
+
+api.interceptors.request.use((config) => {
+  if (organizationId) {
+    config.headers = { ...(config.headers || {}), 'X-Organization': organizationId };
+  }
+  return config;
+});
+
 /* Only the routes whose content IS feedback. An allow-list rather than a
    deny-list: a new endpoint should have to opt in, because silently filtering
    something that was never meant to be filtered is the harder bug to spot. */

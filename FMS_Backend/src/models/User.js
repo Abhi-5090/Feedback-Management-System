@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../tenancy/tenantPlugin.js';
 
 /**
  * User — admin + trainer share this collection, discriminated by `role`.
@@ -24,7 +25,10 @@ const userSchema = new mongoose.Schema(
     // prefixes, and no arithmetic is ever done on it.
     phone: { type: String, trim: true, default: '' },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ['admin', 'trainer'], required: true },
+    /* superadmin is a PLATFORM account: it belongs to no organization (see
+       the organization field added by tenantPlugin) and administers the
+       tenants themselves. admin and trainer are both members of exactly one. */
+    role: { type: String, enum: ['superadmin', 'admin', 'trainer'], required: true },
     isActive: { type: Boolean, default: true },
     // Set when the account was created by a bulk import with a shared default
     // password — useful for prompting a change on first login later.
@@ -65,5 +69,7 @@ userSchema.methods.toJSON = function toJSON() {
   delete obj.passwordHash;
   return obj;
 };
+
+userSchema.plugin(tenantPlugin, { required: false });
 
 export const User = mongoose.model('User', userSchema);

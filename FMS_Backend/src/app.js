@@ -16,6 +16,7 @@ import analyticsRoutes from './routes/analyticsRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import exportRoutes from './routes/exportRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
+import platformRoutes from './routes/platformRoutes.js';
 
 /**
  * Build the Express app. Exported separately from server.js so the test suite
@@ -168,6 +169,7 @@ export function createApp() {
     app.use(prefix, adminRoutes);
     app.use(`${prefix}/analytics`, analyticsRoutes);
     app.use(`${prefix}/dashboard`, dashboardRoutes);
+    app.use(`${prefix}/platform`, platformRoutes);
     app.use(`${prefix}/export`, exportRoutes);
     // Public anonymous student flow (rate-limited).
     app.use(`${prefix}/public`, publicLimiter, publicRoutes);

@@ -6,6 +6,12 @@ import { useToast } from '../components/Toast.jsx';
 import Spinner from '../components/Spinner.jsx';
 import Icon from '../components/Icon.jsx';
 
+/* Where each role lands. A super admin starts on the platform: they belong to
+   no organization, so an admin screen would have nothing to show until they
+   pick one. */
+const homeFor = (role) =>
+  role === 'superadmin' ? '/platform' : role === 'admin' ? '/admin' : '/trainer';
+
 export default function Login() {
   const { user, login, loading } = useAuth();
   const { theme, toggle } = useTheme();
@@ -19,7 +25,7 @@ export default function Login() {
 
   // If already authenticated, bounce to the right home.
   useEffect(() => {
-    if (!loading && user) navigate(user.role === 'admin' ? '/admin' : '/trainer', { replace: true });
+    if (!loading && user) navigate(homeFor(user.role), { replace: true });
   }, [user, loading, navigate]);
 
   const submit = async (e) => {
@@ -29,7 +35,7 @@ export default function Login() {
     try {
       const u = await login(email.trim(), password);
       toast.success(`Welcome back, ${u.name}`);
-      navigate(u.role === 'admin' ? '/admin' : '/trainer', { replace: true });
+      navigate(homeFor(u.role), { replace: true });
     } catch (err) {
       toast.error(err.message || 'Login failed');
       setPassword('');

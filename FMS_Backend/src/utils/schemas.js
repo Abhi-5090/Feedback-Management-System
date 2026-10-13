@@ -295,3 +295,31 @@ export const phaseUpdateSchema = z
     status: z.enum(['draft', 'open']).optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'No fields to update' });
+
+
+/* ── Platform (super admin) ──────────────────────────────────────────────── */
+
+export const createOrganizationSchema = z.object({
+  name: z.string().trim().min(2, 'Name is required').max(120),
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/, 'Handle must be 3–40 lowercase letters, digits or hyphens'),
+  adminName: z.string().trim().min(2, "The admin's name is required").max(120),
+  adminEmail: z.string().trim().toLowerCase().email('A valid email is required'),
+  notes: z.string().max(2000).optional(),
+});
+
+export const updateOrganizationSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    status: z.enum(['active', 'suspended']).optional(),
+    notes: z.string().max(2000).optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
+
+export const addOrgAdminSchema = z.object({
+  name: z.string().trim().min(2, "The admin's name is required").max(120),
+  email: z.string().trim().toLowerCase().email('A valid email is required'),
+});

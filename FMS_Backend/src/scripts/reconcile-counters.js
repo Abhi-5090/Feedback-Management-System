@@ -34,6 +34,7 @@ import { Batch } from '../models/Batch.js';
 import { Feedback } from '../models/Feedback.js';
 import { DeviceLock } from '../models/DeviceLock.js';
 import { isMain } from '../utils/isMain.js';
+import { resolveScriptTenant } from '../tenancy/scriptTenant.js';
 
 const DRY = process.argv.includes('--dry-run');
 
@@ -85,6 +86,7 @@ export function answeredByBatch(perBatchClass) {
 
 async function main() {
   await connectDB();
+  await resolveScriptTenant();
 
   const batches = await Batch.find({})
     .select('name expectedCount submittedCount status round')

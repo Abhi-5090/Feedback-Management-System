@@ -155,3 +155,16 @@ export async function downloadExport(path, params, filename) {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+
+/**
+ * Platform administration — super admin only. Every one of these is refused
+ * with 403 for an organization admin, server-side.
+ */
+export const PlatformAPI = {
+  overview: () => api.get('/platform/overview').then((r) => r.data),
+  organizations: () => api.get('/platform/organizations').then((r) => r.data),
+  create: (body) => api.post('/platform/organizations', body).then((r) => r.data),
+  update: (id, body) => api.patch(`/platform/organizations/${id}`, body).then((r) => r.data),
+  addAdmin: (id, body) => api.post(`/platform/organizations/${id}/admins`, body).then((r) => r.data),
+};

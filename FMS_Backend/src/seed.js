@@ -11,17 +11,10 @@ import { User } from './models/User.js';
 import { Parameter } from './models/Parameter.js';
 import { hashPassword, generateStrongPassword } from './utils/password.js';
 import { isMain } from './utils/isMain.js';
+import { DEFAULT_PARAMETERS } from './config/defaultParameters.js';
+import { Organization } from './models/Organization.js';
+import { runUnscoped, setAmbientTenant } from './tenancy/tenantContext.js';
 
-const DEFAULT_PARAMETERS = [
-  'Content clarity',
-  "Trainer's subject knowledge",
-  'Pace of the session',
-  'Engagement & interaction',
-  'Doubt resolution',
-  'Real-world / practical examples',
-  'Quality of materials',
-  'Overall experience',
-];
 
 async function seedAdmin() {
   const email = env.seedAdminEmail.toLowerCase();
@@ -53,14 +46,37 @@ async function seedParameters() {
   console.log(`[seed] inserted ${DEFAULT_PARAMETERS.length} default parameters`);
 }
 
+/**
+ * The organization the seeded admin and parameters belong to.
+ *
+ * Seeding predates multi-tenancy, and the models now fail closed, so this has
+ * to establish a tenant before anything else is written — otherwise the seed
+ * throws rather than quietly creating unowned rows that nobody could ever see.
+ */
+async function seedOrganization() {
+  const slug = process.env.SEED_ORG_SLUG || 'ncet';
+  const name = process.env.SEED_ORG_NAME || 'NCET';
+  let org = await runUnscoped(() => Organization.findOne({ slug }));
+  if (!org) {
+    org = await runUnscoped(() => Organization.create({ name, slug }));
+    console.log(`[seed] created organization ${name} (${slug})`);
+  } else {
+    console.log(`[seed] organization ${org.name} (${slug}) already exists`);
+  }
+  setAmbientTenant({ organization: org._id });
+  return org;
+}
+
 async function main() {
   await connectDB();
+  const org = await seedOrganization();
   const { email, password } = await seedAdmin();
   await seedParameters();
 
   console.log('\n──────────────────────────────────────────────');
   console.log(' SEED COMPLETE');
   console.log('──────────────────────────────────────────────');
+  console.log(` Organization   : ${org.name} (${org.slug})`);
   console.log(` Admin email    : ${email}`);
   if (password) {
     console.log(` Admin password : ${password}`);

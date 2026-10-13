@@ -4,6 +4,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useTheme } from '../theme/ThemeContext.jsx';
 import PhaseFilter from '../phase/PhaseFilter.jsx';
+import OrgSwitcher from '../platform/OrgSwitcher.jsx';
 import { usePhaseScope } from '../phase/PhaseScope.jsx';
 import Icon from '../components/Icon.jsx';
 
@@ -278,6 +279,11 @@ export default function AppShell({ brand, roleLabel, nav }) {
             <Icon name="menu" size={18} />
           </button>
           <p className="hidden text-sm font-medium text-muted lg:block">{roleLabel} workspace</p>
+
+          {/* Before the phase filter, because the organization frames what the
+              phase then narrows — reading them the other way round invites
+              someone to change the phase and not notice the tenant. */}
+          <OrgSwitcher />
 
           {/* The phase filter lives here, and only here: one control in one
               place, in the same spot on every screen, because the thing it

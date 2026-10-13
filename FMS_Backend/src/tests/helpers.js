@@ -17,6 +17,8 @@ import { Class } from '../models/Class.js';
 import { Batch } from '../models/Batch.js';
 import { hashPassword } from '../utils/password.js';
 import { bustParameterCache } from '../services/parameterCache.js';
+import { Organization } from '../models/Organization.js';
+import { setAmbientTenant, clearAmbientTenant, runUnscoped } from '../tenancy/tenantContext.js';
 
 let replset;
 
@@ -52,6 +54,10 @@ export async function stopTestDB() {
 }
 
 export async function resetDB() {
+  /* Clear the tenant BEFORE wiping: the raw driver bypasses the plugin, but
+     leaving a stale organization pointed at deleted rows makes the next
+     failure confusing. */
+  clearAmbientTenant();
   const { collections } = mongoose.connection;
   await Promise.all(Object.values(collections).map((c) => c.deleteMany({})));
   /* Wiping the database has to invalidate anything cached from it. The active
@@ -118,7 +124,21 @@ export function makeBrowser(baseUrl) {
 }
 
 /** Seed parameters + an admin. */
-export async function seedBasics() {
+/**
+ * The organization every fixture belongs to.
+ *
+ * Models are tenant-scoped and fail closed, so a test that creates data
+ * without a tenant throws rather than writing an unowned row. Tests therefore
+ * run inside an ambient tenant — the same mechanism migrations and scripts
+ * use — which also means the suite exercises the real scoped code path rather
+ * than a bypass built for it.
+ */
+export let testOrg = null;
+
+export async function seedBasics({ orgName = 'Test Institute', slug = 'test-institute' } = {}) {
+  testOrg = await runUnscoped(() => Organization.create({ name: orgName, slug }));
+  setAmbientTenant({ organization: testOrg._id });
+
   await Parameter.insertMany(DEFAULT_PARAMS.map((label, i) => ({ label, order: i })));
   const admin = await User.create({
     name: 'Admin',
@@ -127,6 +147,23 @@ export async function seedBasics() {
     role: 'admin',
   });
   return { admin };
+}
+
+/**
+ * A second organization with its own admin — the other side of every
+ * isolation test. Returns a helper that runs work inside that tenant, because
+ * fixtures for it must not be written into the first.
+ */
+export async function makeOrganization({ name = 'Other Institute', slug = 'other-institute' } = {}) {
+  const org = await runUnscoped(() => Organization.create({ name, slug }));
+  return {
+    org,
+    run: (fn) => {
+      const prev = testOrg;
+      setAmbientTenant({ organization: org._id });
+      return Promise.resolve(fn()).finally(() => setAmbientTenant({ organization: prev?._id }));
+    },
+  };
 }
 
 export async function makeTrainer(email = 'trainer@test.com', name) {

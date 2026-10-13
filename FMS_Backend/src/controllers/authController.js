@@ -16,6 +16,7 @@ import {
   signAuthToken,
   authCookieOptions,
 } from '../utils/token.js';
+import { runUnscoped } from '../tenancy/tenantContext.js';
 
 /** Reset tokens are stored hashed — the raw value only ever lives in the email. */
 const hashToken = (raw) => crypto.createHash('sha256').update(String(raw)).digest('hex');
@@ -23,7 +24,12 @@ const hashToken = (raw) => crypto.createHash('sha256').update(String(raw)).diges
 // POST /api/auth/login
 export const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
-  const user = await User.findOne({ email: email.toLowerCase() });
+  /* Identity lookups are platform-wide: an email identifies one person
+     across the whole product, and at sign-in nobody knows their tenant yet.
+     Email uniqueness stays global for exactly this reason — a per-tenant
+     unique index would make the same address resolve to two accounts and give
+     the login form no way to choose. */
+  const user = await runUnscoped(() => User.findOne({ email: email.toLowerCase() }));
   if (!user || !user.isActive) throw unauthorized('Invalid credentials');
 
   const ok = await comparePassword(password, user.passwordHash);
@@ -56,7 +62,7 @@ export const me = asyncHandler(async (req, res) => {
  */
 export const updateMe = asyncHandler(async (req, res) => {
   const { name, email, currentPassword, newPassword } = req.body;
-  const user = await User.findById(req.user._id);
+  const user = await runUnscoped(() => User.findById(req.user._id));
   if (!user) throw unauthorized('Account not found');
 
   if (newPassword) {
@@ -83,7 +89,7 @@ export const updateMe = asyncHandler(async (req, res) => {
   }
 
   if (email && email.toLowerCase() !== user.email) {
-    const clash = await User.findOne({ email: email.toLowerCase() });
+    const clash = await runUnscoped(() => User.findOne({ email: email.toLowerCase() }));
     if (clash) throw conflict('That email is already in use.', 'EMAIL_TAKEN');
     user.email = email;
   }
@@ -120,7 +126,7 @@ export const updateMe = asyncHandler(async (req, res) => {
  */
 export const forgotPassword = asyncHandler(async (req, res) => {
   const email = String(req.body.email || '').toLowerCase().trim();
-  const user = await User.findOne({ email });
+  const user = await runUnscoped(() => User.findOne({ email }));
 
   if (user && user.isActive) {
     await PasswordResetToken.updateMany(
@@ -168,7 +174,7 @@ export const resetPassword = asyncHandler(async (req, res) => {
   });
   if (!grant) throw badRequest('That reset link is invalid or has expired.', 'INVALID_RESET_TOKEN');
 
-  const user = await User.findById(grant.user);
+  const user = await runUnscoped(() => User.findById(grant.user));
   if (!user || !user.isActive) throw badRequest('That account is no longer active.', 'INACTIVE');
 
   const weak = validatePasswordStrength(newPassword, { name: user.name, email: user.email });
@@ -199,7 +205,7 @@ export const resetPassword = asyncHandler(async (req, res) => {
  */
 export const updateDigest = asyncHandler(async (req, res) => {
   const { enabled, frequency } = req.body;
-  const user = await User.findById(req.user._id);
+  const user = await runUnscoped(() => User.findById(req.user._id));
   if (!user) throw unauthorized('Account not found');
 
   user.digest = {
@@ -228,7 +234,7 @@ export const logout = asyncHandler(async (_req, res) => {
  * after "I left myself signed in on a lab machine".
  */
 export const logoutEverywhere = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
+  const user = await runUnscoped(() => User.findById(req.user._id));
   if (!user) throw unauthorized('Account not found');
 
   user.tokenVersion = (user.tokenVersion || 0) + 1;
