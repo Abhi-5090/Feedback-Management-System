@@ -11,11 +11,26 @@ import { Batch } from '../FMS_Backend/src/models/Batch.js';
 import { Parameter } from '../FMS_Backend/src/models/Parameter.js';
 import { Phase } from '../FMS_Backend/src/models/Phase.js';
 import { hashPassword } from '../FMS_Backend/src/utils/password.js';
+import { Organization } from '../FMS_Backend/src/models/Organization.js';
+import {
+  runUnscoped,
+  setAmbientTenant,
+} from '../FMS_Backend/src/tenancy/tenantContext.js';
 
 export const ADMIN = { email: 'e2e-admin@test.local', password: 'e2e-admin-pass-2026' };
 export const PARAMETERS = ['Content clarity', 'Pace of the session', 'Overall experience'];
 
 export async function seedE2E() {
+  /* Every model is tenant-scoped and fails closed, so the organization has to
+     exist and be entered BEFORE anything else is touched — including the
+     deletes, which are themselves scoped queries. Seeding outside a tenant
+     throws rather than quietly writing rows nobody could ever read. */
+  await runUnscoped(() => Organization.deleteMany({}));
+  const org = await runUnscoped(() =>
+    Organization.create({ name: 'E2E Institute', slug: 'e2e-institute' })
+  );
+  setAmbientTenant({ organization: org._id });
+
   await Promise.all([
     User.deleteMany({}), Class.deleteMany({}), Batch.deleteMany({}), Parameter.deleteMany({}),
     Phase.deleteMany({}),
