@@ -308,6 +308,15 @@ export const createOrganizationSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/, 'Handle must be 3–40 lowercase letters, digits or hyphens'),
   adminName: z.string().trim().min(2, "The admin's name is required").max(120),
   adminEmail: z.string().trim().toLowerCase().email('A valid email is required'),
+  /* Optional. Given one, the operator hands it over themselves; omitted, one
+     is generated and shown once. Strength is checked in the controller, which
+     can see the name and email the password must not simply repeat. */
+  adminPassword: z.string().min(1).max(200).optional(),
+  /* Defaults ON. The operator who typed the password knows it, so until the
+     admin replaces it that account is shared between two people. Switchable,
+     because an operator setting up an account they will hand over in person
+     may reasonably decide otherwise. */
+  requirePasswordChange: z.boolean().optional().default(true),
   notes: z.string().max(2000).optional(),
 });
 
@@ -322,4 +331,6 @@ export const updateOrganizationSchema = z
 export const addOrgAdminSchema = z.object({
   name: z.string().trim().min(2, "The admin's name is required").max(120),
   email: z.string().trim().toLowerCase().email('A valid email is required'),
+  password: z.string().min(1).max(200).optional(),
+  requirePasswordChange: z.boolean().optional().default(true),
 });

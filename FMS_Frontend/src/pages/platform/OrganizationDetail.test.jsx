@@ -97,6 +97,64 @@ describe('organization detail', () => {
     expect(screen.getByText(/cannot be shown again/i)).toBeInTheDocument();
   });
 
+  test('a typed password is sent, and no secret is shown back', async () => {
+    /* The operator already holds it. Showing it again would put a live
+       credential on screen and in the response for nothing. */
+    addAdmin.mockResolvedValue({
+      admin: { id: 'u9', name: 'Second', email: 's@ncet.test', mustChangePassword: true },
+    });
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /add admin/i }));
+    const dialog = within(await screen.findByRole('dialog'));
+    await userEvent.type(dialog.getByLabelText('Name'), 'Second');
+    await userEvent.type(dialog.getByLabelText('Email'), 's@ncet.test');
+    await userEvent.type(dialog.getByLabelText(/^Password/), 'Harbour-Lantern-42');
+    await userEvent.click(dialog.getByRole('button', { name: /^add admin$/i }));
+
+    await waitFor(() =>
+      expect(addAdmin).toHaveBeenCalledWith('o1', expect.objectContaining({
+        email: 's@ncet.test',
+        password: 'Harbour-Lantern-42',
+        requirePasswordChange: true,
+      }))
+    );
+    expect(await screen.findByText(/sign in with the password you set/i)).toBeInTheDocument();
+    expect(screen.queryByText(/cannot be shown again/i)).not.toBeInTheDocument();
+  });
+
+  test('leaving the password blank asks the server to generate one', async () => {
+    addAdmin.mockResolvedValue({
+      admin: { id: 'u9', name: 'Second', email: 's@ncet.test' },
+      temporaryPassword: 'Gen-erated-1',
+    });
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /add admin/i }));
+    const dialog = within(await screen.findByRole('dialog'));
+    await userEvent.type(dialog.getByLabelText('Name'), 'Second');
+    await userEvent.type(dialog.getByLabelText('Email'), 's@ncet.test');
+    await userEvent.click(dialog.getByRole('button', { name: /^add admin$/i }));
+
+    await waitFor(() => expect(addAdmin).toHaveBeenCalled());
+    // No `password` key at all, rather than an empty string the server must interpret.
+    expect(addAdmin.mock.calls[0][1]).not.toHaveProperty('password');
+    expect(await screen.findByText('Gen-erated-1')).toBeInTheDocument();
+  });
+
+  test('the force-change box can be turned off', async () => {
+    addAdmin.mockResolvedValue({ admin: { id: 'u9', name: 'S', email: 's@ncet.test' } });
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: /add admin/i }));
+    const dialog = within(await screen.findByRole('dialog'));
+    await userEvent.type(dialog.getByLabelText('Name'), 'Second');
+    await userEvent.type(dialog.getByLabelText('Email'), 's@ncet.test');
+    await userEvent.click(dialog.getByRole('checkbox'));
+    await userEvent.click(dialog.getByRole('button', { name: /^add admin$/i }));
+
+    await waitFor(() =>
+      expect(addAdmin).toHaveBeenCalledWith('o1', expect.objectContaining({ requirePasswordChange: false }))
+    );
+  });
+
   test('a suspended organization says what suspension does, and blocks entry', async () => {
     get.mockResolvedValue(ORG({ status: 'suspended' }));
     renderPage();

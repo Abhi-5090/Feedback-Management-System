@@ -10,6 +10,7 @@ import Icon from '../../components/Icon.jsx';
 import StatTile from '../../components/StatTile.jsx';
 import { SkeletonBlock } from '../../components/Spinner.jsx';
 import OneTimeSecret from '../../components/OneTimeSecret.jsx';
+import AdminCredentialFields from '../../components/AdminCredentialFields.jsx';
 
 const slugify = (s) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
@@ -32,7 +33,10 @@ export default function Organizations() {
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [issued, setIssued] = useState(null);
-  const [form, setForm] = useState({ name: '', slug: '', adminName: '', adminEmail: '' });
+  const [form, setForm] = useState({
+    name: '', slug: '', adminName: '', adminEmail: '',
+    password: '', requirePasswordChange: true,
+  });
   const [slugEdited, setSlugEdited] = useState(false);
 
   const load = useCallback(async () => {
@@ -51,12 +55,18 @@ export default function Organizations() {
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await PlatformAPI.create({ ...form, slug: form.slug || slugify(form.name) });
+      const { password, ...rest } = form;
+      const res = await PlatformAPI.create({
+        ...rest,
+        slug: form.slug || slugify(form.name),
+        // Omitted entirely when blank, so the server generates one.
+        ...(password ? { adminPassword: password } : {}),
+      });
       /* Shown once and never again. The only recovery is a password reset,
          which is the correct shape for a credential. */
       setIssued(res);
       setCreating(false);
-      setForm({ name: '', slug: '', adminName: '', adminEmail: '' });
+      setForm({ name: '', slug: '', adminName: '', adminEmail: '', password: '', requirePasswordChange: true });
       setSlugEdited(false);
       load();
     } catch (err) {
@@ -166,10 +176,11 @@ export default function Organizations() {
                 onChange={(e) => setForm((f) => ({ ...f, adminEmail: e.target.value }))} />
             </div>
           </div>
-          <p className="text-[11px] leading-relaxed text-muted">
-            A one-time password is generated and shown once. Pass it on yourself — it is never emailed
-            from here, and they must replace it before they can do anything.
-          </p>
+          <AdminCredentialFields
+            value={{ password: form.password, requirePasswordChange: form.requirePasswordChange }}
+            onChange={(v) => setForm((f) => ({ ...f, ...v }))}
+            idPrefix="new-org"
+          />
           <div className="flex justify-end gap-2">
             <button type="button" className="btn-ghost" onClick={() => setCreating(false)}>Cancel</button>
             <button type="submit" className="btn-primary" disabled={busy}>
@@ -185,6 +196,7 @@ export default function Organizations() {
         title="Organization created"
         who={issued?.admin}
         secret={issued?.temporaryPassword}
+        note="They can create their own mentors, subjects and cohorts straight away."
       />
     </div>
   );

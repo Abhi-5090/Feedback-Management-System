@@ -8,6 +8,7 @@ import Modal from '../../components/Modal.jsx';
 import Icon from '../../components/Icon.jsx';
 import StatTile from '../../components/StatTile.jsx';
 import OneTimeSecret from '../../components/OneTimeSecret.jsx';
+import AdminCredentialFields from '../../components/AdminCredentialFields.jsx';
 import { SkeletonBlock } from '../../components/Spinner.jsx';
 
 const day = (d) =>
@@ -29,7 +30,7 @@ export default function OrganizationDetail() {
 
   const [data, setData] = useState(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', requirePasswordChange: true });
   const [busy, setBusy] = useState(false);
   const [issued, setIssued] = useState(null);
   const [renaming, setRenaming] = useState(false);
@@ -54,10 +55,14 @@ export default function OrganizationDetail() {
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await PlatformAPI.addAdmin(id, form);
+      const { password, ...rest } = form;
+      const res = await PlatformAPI.addAdmin(id, {
+        ...rest,
+        ...(password ? { password } : {}),
+      });
       setIssued({ title: 'Admin added', who: res.admin, secret: res.temporaryPassword });
       setAdding(false);
-      setForm({ name: '', email: '' });
+      setForm({ name: '', email: '', password: '', requirePasswordChange: true });
       load();
     } catch (err) {
       toast.error(err.message);
@@ -232,6 +237,11 @@ export default function OrganizationDetail() {
             <input id="a-email" type="email" className="input" required value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
           </div>
+          <AdminCredentialFields
+            value={{ password: form.password, requirePasswordChange: form.requirePasswordChange }}
+            onChange={(v) => setForm((f) => ({ ...f, ...v }))}
+            idPrefix="add-admin"
+          />
           <div className="flex justify-end gap-2">
             <button type="button" className="btn-ghost" onClick={() => setAdding(false)}>Cancel</button>
             <button type="submit" className="btn-primary" disabled={busy}>

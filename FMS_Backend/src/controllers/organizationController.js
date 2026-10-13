@@ -7,7 +7,11 @@ import { Feedback } from '../models/Feedback.js';
 import { Parameter } from '../models/Parameter.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { badRequest, notFound, conflict } from '../utils/ApiError.js';
-import { hashPassword, generateStrongPassword } from '../utils/password.js';
+import {
+  hashPassword,
+  generateStrongPassword,
+  validatePasswordStrength,
+} from '../utils/password.js';
 import { recordAudit } from '../services/auditService.js';
 import { runWithTenant, runUnscoped } from '../tenancy/tenantContext.js';
 import { DEFAULT_PARAMETERS } from '../config/defaultParameters.js';
@@ -22,6 +26,24 @@ import { DEFAULT_PARAMETERS } from '../config/defaultParameters.js';
  * admin controllers. Writes into a specific organization are wrapped in
  * runWithTenant so the rows they create are owned correctly.
  */
+
+
+/**
+ * The password a new admin starts with.
+ *
+ * Either the operator types one — which is what makes handing an account over
+ * a single conversation rather than a copied secret — or one is generated and
+ * shown once. A typed password is checked against the same strength rules the
+ * rest of the product uses; a platform operator in a hurry is exactly who
+ * would otherwise set "password123" on an account that owns an institution's
+ * entire feedback history.
+ */
+function resolveInitialPassword({ password, name, email }) {
+  if (!password) return { plain: generateStrongPassword(), generated: true };
+  const problem = validatePasswordStrength(password, { name, email });
+  if (problem) throw badRequest(problem, 'WEAK_PASSWORD');
+  return { plain: password, generated: false };
+}
 
 const shape = (o, stats) => ({
   id: String(o._id),
@@ -81,7 +103,8 @@ export const listOrganizations = asyncHandler(async (req, res) => {
  * states is reachable and someone eventually ships one.
  */
 export const createOrganization = asyncHandler(async (req, res) => {
-  const { name, slug, adminName, adminEmail, notes } = req.body;
+  const { name, slug, adminName, adminEmail, notes, adminPassword, requirePasswordChange } =
+    req.body;
 
   const email = String(adminEmail || '').toLowerCase().trim();
   const cleanSlug = String(slug || '').toLowerCase().trim();
@@ -96,6 +119,17 @@ export const createOrganization = asyncHandler(async (req, res) => {
      would leave the login form with no way to choose. */
   if (emailTaken) throw conflict(`${email} already has an account`, 'EMAIL_TAKEN');
 
+  /* THE PASSWORD IS SETTLED BEFORE ANYTHING IS WRITTEN. Validating it after
+     creating the organization left a tenant with no admin behind every
+     rejected password — an organization nobody can enter, which is exactly
+     the broken state creating these three things together is meant to
+     prevent. Cheap checks first, writes second. */
+  const { plain, generated } = resolveInitialPassword({
+    password: adminPassword,
+    name: adminName,
+    email,
+  });
+
   const org = await Organization.create({
     name: String(name).trim(),
     slug: cleanSlug,
@@ -103,23 +137,33 @@ export const createOrganization = asyncHandler(async (req, res) => {
     createdBy: req.user._id,
   });
 
-  /* A password nobody chose and nobody has reused, shown once and required to
-     be replaced on first sign-in. The super admin passes it on out of band;
-     it is never stored in readable form or emailed from here. */
-  const tempPassword = generateStrongPassword();
-
-  const admin = await runWithTenant(org._id, async () => {
-    const created = await User.create({
-      name: String(adminName).trim(),
-      email,
-      passwordHash: await hashPassword(tempPassword),
-      role: 'admin',
-      mustChangePassword: true,
+  let admin;
+  try {
+    admin = await runWithTenant(org._id, async () => {
+      const created = await User.create({
+        name: String(adminName).trim(),
+        email,
+        passwordHash: await hashPassword(plain),
+        role: 'admin',
+        mustChangePassword: requirePasswordChange !== false,
+      });
+      // Seed the feedback parameters, or the student form has nothing to ask.
+      await Parameter.insertMany(DEFAULT_PARAMETERS.map((label, i) => ({ label, order: i })));
+      return created;
     });
-    // Seed the feedback parameters, or the student form has nothing to ask.
-    await Parameter.insertMany(DEFAULT_PARAMETERS.map((label, i) => ({ label, order: i })));
-    return created;
-  });
+  } catch (err) {
+    /* Unwind rather than leave an organization nobody can enter. These three
+       writes are not in one transaction because they span collections on a
+       deployment that may be a standalone mongod, so the cleanup is explicit.
+       It is best-effort: if it fails too, the original error is still what the
+       caller needs to see. */
+    await Organization.deleteOne({ _id: org._id }).catch(() => {});
+    await runWithTenant(org._id, async () => {
+      await User.deleteMany({ organization: org._id }).catch(() => {});
+      await Parameter.deleteMany({ organization: org._id }).catch(() => {});
+    }).catch(() => {});
+    throw err;
+  }
 
   recordAudit(req, {
     action: 'organization.create',
@@ -131,11 +175,16 @@ export const createOrganization = asyncHandler(async (req, res) => {
 
   res.status(201).json({
     organization: shape(org),
-    admin: { id: String(admin._id), name: admin.name, email: admin.email },
-    /* Returned exactly once. There is no endpoint that will show it again —
-       the only recovery is a reset, which is the correct shape for a
-       credential. */
-    temporaryPassword: tempPassword,
+    admin: {
+      id: String(admin._id),
+      name: admin.name,
+      email: admin.email,
+      mustChangePassword: admin.mustChangePassword,
+    },
+    /* Returned ONLY when this end generated it. Echoing back a password the
+       operator typed puts a secret they already hold into a response body, a
+       log and a browser's memory for nothing. */
+    ...(generated ? { temporaryPassword: plain } : {}),
   });
 });
 
@@ -179,14 +228,18 @@ export const addOrganizationAdmin = asyncHandler(async (req, res) => {
     throw conflict(`${email} already has an account`, 'EMAIL_TAKEN');
   }
 
-  const tempPassword = generateStrongPassword();
+  const { plain, generated } = resolveInitialPassword({
+    password: req.body.password,
+    name: req.body.name,
+    email,
+  });
   const admin = await runWithTenant(org._id, async () =>
     User.create({
       name: String(req.body.name).trim(),
       email,
-      passwordHash: await hashPassword(tempPassword),
+      passwordHash: await hashPassword(plain),
       role: 'admin',
-      mustChangePassword: true,
+      mustChangePassword: req.body.requirePasswordChange !== false,
     })
   );
 
@@ -199,8 +252,13 @@ export const addOrganizationAdmin = asyncHandler(async (req, res) => {
   });
 
   res.status(201).json({
-    admin: { id: String(admin._id), name: admin.name, email: admin.email },
-    temporaryPassword: tempPassword,
+    admin: {
+      id: String(admin._id),
+      name: admin.name,
+      email: admin.email,
+      mustChangePassword: admin.mustChangePassword,
+    },
+    ...(generated ? { temporaryPassword: plain } : {}),
   });
 });
 

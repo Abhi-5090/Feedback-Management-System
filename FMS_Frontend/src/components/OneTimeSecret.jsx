@@ -11,9 +11,32 @@ import { useToast } from './Toast.jsx';
  * says so plainly rather than looking like an ordinary confirmation someone
  * can dismiss and come back to.
  */
-export default function OneTimeSecret({ open, onClose, title, who, secret }) {
+export default function OneTimeSecret({ open, onClose, title, who, secret, note }) {
   const toast = useToast();
   if (!secret && !open) return null;
+
+  /* No secret means the operator chose the password themselves and already
+     holds it. Echoing it back would put a live credential into a response
+     body and the browser's memory for nothing, so the server does not send it
+     — and this says what happened instead of showing an empty box. */
+  if (!secret) {
+    return (
+      <Modal open={open} onClose={onClose} title={title} description="They can sign in with the password you set.">
+        <div className="space-y-4">
+          {who && (
+            <div className="rounded-xl border border-line bg-surface-2/60 p-3.5">
+              <p className="text-sm font-semibold text-ink">{who.name}</p>
+              <p className="mt-0.5 text-[11px] text-muted">{who.email}</p>
+            </div>
+          )}
+          {note && <p className="text-xs leading-relaxed text-muted">{note}</p>}
+          <div className="flex justify-end">
+            <button className="btn-primary" onClick={onClose}>Done</button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal open={open} onClose={onClose} title={title} description="Copy it now — it cannot be shown again.">
