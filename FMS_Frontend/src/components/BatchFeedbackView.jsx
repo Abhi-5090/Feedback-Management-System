@@ -12,17 +12,7 @@ import ParamBarChart from './charts/ParamBarChart.jsx';
 import TrendLineChart from './charts/TrendLineChart.jsx';
 import Icon from './Icon.jsx';
 import { MentorRosterBadges } from './MentorRosterPicker.jsx';
-
-const BackLink = ({ onClick }) => (
-  <button
-    type="button"
-    className="focus-ring -ml-1 mb-1.5 inline-flex items-center gap-1.5 rounded-lg px-1 py-0.5 text-sm text-muted transition-colors duration-150 hover:text-ink"
-    onClick={onClick}
-  >
-    <Icon name="chevronLeft" size={14} />
-    Back
-  </button>
-);
+import BackLink from './BackLink.jsx';
 
 /** Rating tone, matching the class cards. */
 function tone(v) {

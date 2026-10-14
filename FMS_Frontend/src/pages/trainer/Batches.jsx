@@ -78,7 +78,7 @@ function BatchCard({ b }) {
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
           <div
-            className={`h-full origin-left rounded-full transition-transform duration-500 ease-out-expo ${
+            className={`h-full origin-left rounded-full transition-transform duration-[280ms] ease-out-expo ${
               isOpen ? 'bg-brand-500' : 'bg-subtle'
             }`}
             style={{ transform: `scaleX(${pct / 100})`, width: '100%' }}

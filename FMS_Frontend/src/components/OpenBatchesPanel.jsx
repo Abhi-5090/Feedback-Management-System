@@ -55,7 +55,7 @@ function BatchRow({ b }) {
         aria-label={`${b.name}: ${b.submittedCount} of ${capped ? b.expectedCount : 'unlimited'} responses`}
       >
         <div
-          className={`h-full w-full origin-left rounded-full transition-transform duration-500 ease-out-expo ${
+          className={`h-full w-full origin-left rounded-full transition-transform duration-[280ms] ease-out-expo ${
             full ? 'bg-emerald-500' : 'bg-brand-500'
           }`}
           style={{ transform: `scaleX(${pct / 100})` }}

@@ -22,6 +22,10 @@ const HEALTH = {
   'never-used': { label: 'Never used', cls: 'bg-rose-500/14 text-rose-700 dark:text-rose-400' },
 };
 
+/* A missing number renders as a dash rather than taking the page down. A
+   dashboard is the wrong place to discover a shape mismatch by white screen. */
+const num = (v) => (typeof v === 'number' ? v.toLocaleString() : '—');
+
 const ago = (days) =>
   days === null || days === undefined
     ? 'no responses yet'
@@ -63,8 +67,15 @@ export default function Organizations() {
 
   const load = useCallback(async () => {
     try {
-      const [orgs, ov] = await Promise.all([PlatformAPI.organizations(), PlatformAPI.overview()]);
-      setData(orgs.organizations);
+      /* ONE source for both halves of this page. The table used to come from
+         /organizations while the tiles came from /overview, and the moment
+         the richer shape landed on only one of them the rows referenced
+         fields that were not there — a white screen, from two endpoints
+         answering the same question differently. The totals are summed from
+         these rows server-side, so the headline cannot drift from the table
+         either. */
+      const ov = await PlatformAPI.overview();
+      setData(ov.organizations);
       setOverview(ov.kpis);
     } catch (e) {
       /* A 404 here does not mean the request was wrong — it means the server
@@ -134,7 +145,7 @@ export default function Organizations() {
           <StatTile label="Collecting now" value={overview.openBatches} icon="unlock" delay={120}
             tone={overview.openBatches > 0 ? 'good' : 'neutral'} sub="cohorts open" />
           <StatTile label="Responses" value={overview.responses} icon="inbox" tone="neutral" delay={160}
-            sub={`${(overview.responsesLast30 || 0).toLocaleString()} in 30 days`} />
+            sub={`${num(overview.responsesLast30 ?? 0)} in 30 days`} />
         </div>
       )}
 
@@ -164,9 +175,15 @@ export default function Organizations() {
         <SkeletonBlock height={260} className="rounded-2xl" />
       ) : !data ? null : (
         <Card title="All organizations" icon="building" subtitle={`${data.length} on the platform`}>
-          <ul className="divide-y divide-line">
+          <ul className="stagger divide-y divide-line">
             {data.map((o) => (
-              <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4">
+              <li
+                key={o.id}
+                /* Hover gated behind a real pointer: a touch device fires
+                   hover on tap, which leaves the row stuck looking focused
+                   after the finger lifts. */
+                className="group flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 transition-colors duration-150 ease-out [@media(hover:hover)and(pointer:fine)]:hover:bg-surface-2/50"
+              >
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-2 truncate text-sm font-semibold text-ink">
                     {o.name}
@@ -184,7 +201,7 @@ export default function Organizations() {
                     )}
                   </p>
                   <p className="truncate text-[11px] text-muted">
-                    {o.slug} · {o.people} people · {o.classes} subjects · {o.batches} cohorts
+                    {o.slug} · {o.people ?? 0} people · {o.classes ?? 0} subjects · {o.batches ?? 0} cohorts
                     {o.openBatches > 0 && (
                       <span className="text-emerald-600 dark:text-emerald-400">
                         {' '}· {o.openBatches} collecting now
@@ -197,12 +214,12 @@ export default function Organizations() {
                     is the one about to leave, and a count alone hides that. */}
                 <div className="flex shrink-0 items-center gap-5 text-right">
                   <div>
-                    <p className="tnum text-sm font-bold text-ink">{o.responses.toLocaleString()}</p>
+                    <p className="tnum text-sm font-bold text-ink">{num(o.responses)}</p>
                     <p className="text-[10px] uppercase tracking-wider text-subtle">responses</p>
                   </div>
                   <div className="hidden sm:block">
                     <p className="tnum text-sm font-bold text-ink">
-                      {o.averageRating === null ? '—' : o.averageRating.toFixed(2)}
+                      {typeof o.averageRating === 'number' ? o.averageRating.toFixed(2) : '—'}
                     </p>
                     <p className="text-[10px] uppercase tracking-wider text-subtle">avg rating</p>
                   </div>

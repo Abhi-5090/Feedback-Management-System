@@ -1,4 +1,5 @@
 import Card from '../Card.jsx';
+import Meter from '../Meter.jsx';
 
 /* Semantic, matching StatTile's vocabulary: a 5 is not "series one", it is a
    good outcome, and the colour should say so without a legend. */
@@ -79,7 +80,11 @@ export default function RatingDistribution({ data }) {
                 s.pct > 0 && (
                   <div
                     key={s.key}
-                    className={`${s.cls} transition-[width] duration-500 ease-out-expo`}
+                    /* The sentiment bar is three shares of ONE whole, so its
+                       segments keep width — scaling each would make them
+                       overlap rather than sit side by side. The duration is
+                       brought into budget instead. */
+                    className={`${s.cls} transition-[width] duration-[280ms] ease-out-expo`}
                     style={{ width: `${s.pct}%` }}
                     title={`${s.label} ${s.sub}: ${s.n.toLocaleString()} (${s.pct}%)`}
                   />
@@ -105,12 +110,13 @@ export default function RatingDistribution({ data }) {
           {[...data.buckets].reverse().map((b) => (
             <li key={b.stars} className="flex items-center gap-3">
               <span className="tnum w-6 shrink-0 text-right text-xs font-semibold text-muted">{b.stars}★</span>
-              <div className="h-5 flex-1 overflow-hidden rounded-md bg-surface-2">
-                <div
-                  className={`h-full rounded-md ${BAR[b.stars]} transition-[width] duration-500 ease-out-expo`}
-                  style={{ width: `${(b.count / max) * 100}%` }}
-                />
-              </div>
+              <Meter
+                pct={(b.count / max) * 100}
+                className={BAR[b.stars]}
+                trackClass="flex-1 !rounded-md"
+                height="h-5"
+                label={`${b.stars} stars: ${b.count} ratings`}
+              />
               <span className="tnum w-20 shrink-0 text-right text-xs text-muted">
                 <span className="font-semibold text-ink">{b.count.toLocaleString()}</span>
                 <span className="ml-1 text-subtle">{b.pct}%</span>

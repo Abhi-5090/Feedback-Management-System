@@ -178,7 +178,7 @@ export default function TrainerComparison() {
                         the number keeps it precise. */}
                     <span className="hidden h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-surface-2 sm:block">
                       <span
-                        className="block h-full origin-left rounded-full transition-transform duration-500 ease-out-expo"
+                        className="block h-full origin-left rounded-full transition-transform duration-[280ms] ease-out-expo"
                         style={{ transform: `scaleX(${t.average / 5})`, width: '100%', backgroundColor: barColor(t.average) }}
                       />
                     </span>

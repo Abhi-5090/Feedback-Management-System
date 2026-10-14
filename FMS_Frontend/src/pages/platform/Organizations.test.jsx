@@ -26,11 +26,12 @@ const ROW = (over = {}) => ({
   responses: 1259, responsesLast30: 0, averageRating: 4.3,
   daysSinceLastResponse: 5, health: 'active', ...over,
 });
-const OVERVIEW = (over = {}) => ({
+const OVERVIEW = (over = {}, organizations = [ROW()]) => ({
   kpis: {
     organizations: 1, suspended: 0, users: 26, batches: 14, openBatches: 0,
     responses: 1259, responsesLast30: 0, dormant: 0, neverUsed: 0, ...over,
   },
+  organizations,
 });
 
 const Organizations = (await import('./Organizations.jsx')).default;
@@ -44,8 +45,7 @@ beforeEach(() => {
 
 describe('Organizations', () => {
   test('lists what the server returns', async () => {
-    organizations.mockResolvedValue({ organizations: [ROW()] });
-    overview.mockResolvedValue(OVERVIEW());
+    overview.mockResolvedValue(OVERVIEW({}, [ROW()]));
     renderPage();
     expect(await screen.findByText('NCET')).toBeInTheDocument();
   });
@@ -53,10 +53,9 @@ describe('Organizations', () => {
   test('a dormant tenant is marked as such, not just shown with a big number', async () => {
     /* Volume alone hides the customer about to leave: a large dormant
        institution looks healthiest of all when sorted by responses. */
-    organizations.mockResolvedValue({
-      organizations: [ROW({ health: 'dormant', daysSinceLastResponse: 120, responses: 9000 })],
-    });
-    overview.mockResolvedValue(OVERVIEW({ dormant: 1 }));
+    overview.mockResolvedValue(
+      OVERVIEW({ dormant: 1 }, [ROW({ health: 'dormant', daysSinceLastResponse: 120, responses: 9000 })])
+    );
     renderPage();
     /* "Dormant" appears twice on purpose — once as the platform-wide count,
        once as this row's badge — so the query has to say which it means. */
@@ -66,10 +65,11 @@ describe('Organizations', () => {
   });
 
   test('a tenant that never collected anything is called out separately', async () => {
-    organizations.mockResolvedValue({
-      organizations: [ROW({ health: 'never-used', responses: 0, averageRating: null, daysSinceLastResponse: null })],
-    });
-    overview.mockResolvedValue(OVERVIEW({ neverUsed: 1, responses: 0 }));
+    overview.mockResolvedValue(
+      OVERVIEW({ neverUsed: 1, responses: 0 }, [
+        ROW({ health: 'never-used', responses: 0, averageRating: null, daysSinceLastResponse: null }),
+      ])
+    );
     renderPage();
     const row = (await screen.findByText('NCET')).closest('li');
     expect(within(row).getByText('Never used')).toBeInTheDocument();
@@ -77,8 +77,7 @@ describe('Organizations', () => {
   });
 
   test('an organization currently collecting says so', async () => {
-    organizations.mockResolvedValue({ organizations: [ROW({ openBatches: 3 })] });
-    overview.mockResolvedValue(OVERVIEW({ openBatches: 3 }));
+    overview.mockResolvedValue(OVERVIEW({ openBatches: 3 }, [ROW({ openBatches: 3 })]));
     renderPage();
     expect(await screen.findByText(/3 collecting now/)).toBeInTheDocument();
   });
@@ -88,7 +87,6 @@ describe('Organizations', () => {
        there, and the request 404s — which reads as a bug in a feature that is
        working perfectly on a server that has not been given it yet. */
     const err = Object.assign(new Error('Request failed with status code 404'), { status: 404 });
-    organizations.mockRejectedValue(err);
     overview.mockRejectedValue(err);
 
     renderPage();
@@ -101,11 +99,25 @@ describe('Organizations', () => {
 
   test('a real error still surfaces as an error', async () => {
     const err = Object.assign(new Error('Database unreachable'), { status: 500 });
-    organizations.mockRejectedValue(err);
     overview.mockRejectedValue(err);
     renderPage();
     await screen.findByText(/Organizations/);
     expect(toast.error).toHaveBeenCalledWith('Database unreachable');
     expect(screen.queryByText(/has not been deployed yet/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('a row with missing fields', () => {
+  test('renders dashes rather than taking the page down', async () => {
+    /* Two endpoints once answered the same question with different shapes,
+       and the row called .toFixed on a field that was not there — a white
+       screen on the platform dashboard. One source now, and a row that
+       degrades if that ever stops being true. */
+    overview.mockResolvedValue(
+      OVERVIEW({}, [{ id: 'o9', name: 'Partial Institute', slug: 'partial', status: 'active', health: 'active' }])
+    );
+    renderPage();
+    const row = (await screen.findByText('Partial Institute')).closest('li');
+    expect(within(row).getAllByText('—').length).toBeGreaterThan(0);
   });
 });

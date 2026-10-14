@@ -1,4 +1,5 @@
 import Card from '../Card.jsx';
+import Meter from '../Meter.jsx';
 
 const tone = (r) =>
   r >= 75 ? 'bg-emerald-500' : r >= 40 ? 'bg-amber-400' : 'bg-rose-500';
@@ -57,12 +58,12 @@ export default function CollectionHealth({ data, limit = 8, phaseLabel = null })
                 <span className="ml-2 font-semibold text-ink">{b.rate}%</span>
               </p>
             </div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2">
-              <div
-                className={`h-full rounded-full ${tone(b.rate)} transition-[width] duration-500 ease-out-expo`}
-                style={{ width: `${Math.min(100, b.rate)}%` }}
-              />
-            </div>
+            <Meter
+              pct={b.rate}
+              className={tone(b.rate)}
+              trackClass="mt-1.5"
+              label={`${b.name}: ${b.rate}% responded`}
+            />
           </li>
         ))}
       </ul>

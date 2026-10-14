@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { PlatformAPI } from '../../api/endpoints.js';
 import { useOrgScope } from '../../platform/OrgScope.jsx';
 import { useToast } from '../../components/Toast.jsx';
@@ -10,6 +10,7 @@ import StatTile from '../../components/StatTile.jsx';
 import OneTimeSecret from '../../components/OneTimeSecret.jsx';
 import AdminCredentialFields from '../../components/AdminCredentialFields.jsx';
 import { SkeletonBlock } from '../../components/Spinner.jsx';
+import BackLink from '../../components/BackLink.jsx';
 import { useTenantTime } from '../../platform/useTenantTime.js';
 
 
@@ -156,21 +157,32 @@ export default function OrganizationDetail() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to="/platform" className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted transition-colors hover:text-ink">
-          <Icon name="arrowLeft" size={14} /> All organizations
-        </Link>
+        <BackLink to="/platform" label="All organizations" />
 
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="flex items-center gap-2.5 text-display-sm text-ink">
-              <span className="truncate">{org.name}</span>
+            {/* The same heading, chip and subtitle shape every other detail
+                page in the product uses. Three near-copies of one header is
+                how an interface starts to feel untidy for reasons nobody can
+                point at in any single file. */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="truncate text-xl font-bold tracking-tight text-ink sm:text-2xl">
+                {org.name}
+              </h1>
               {suspended && (
-                <span className="rounded-md bg-amber-500/14 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                <span className="chip-neutral">
+                  <Icon name="lock" size={12} strokeWidth={1.8} />
                   Suspended
                 </span>
               )}
-            </h1>
-            <p className="mt-1 text-sm text-muted">
+              {org.openBatches > 0 && (
+                <span className="chip-open">
+                  <Icon name="unlock" size={12} strokeWidth={1.8} />
+                  Collecting
+                </span>
+              )}
+            </div>
+            <p className="mt-0.5 text-sm text-muted">
               {org.slug} · {org.settings?.timezone || 'Asia/Kolkata'} · created {day(org.createdAt)}
               {org.lastResponseAt && <> · last response {day(org.lastResponseAt)}</>}
             </p>
@@ -179,8 +191,11 @@ export default function OrganizationDetail() {
           <div className="flex shrink-0 flex-wrap gap-2">
             <button
               className="btn-outline"
-              onClick={() => { setDraftName(org.name); setRenaming(true); }}
+              onClick={() => { setDraftSettings({ ...org.settings }); setSettingsOpen(true); }}
             >
+              <Icon name="sliders" size={15} /> Settings
+            </button>
+            <button className="btn-outline" onClick={() => { setDraftName(org.name); setRenaming(true); }}>
               <Icon name="pencil" size={15} /> Rename
             </button>
             <button className="btn-ghost" onClick={() => setStatus(suspended ? 'active' : 'suspended')}>
@@ -225,9 +240,9 @@ export default function OrganizationDetail() {
           </button>
         }
       >
-        <ul className="divide-y divide-line">
+        <ul className="stagger divide-y divide-line">
           {data.admins.map((p) => (
-            <li key={p.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5">
+            <li key={p.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition-colors duration-150 ease-out [@media(hover:hover)and(pointer:fine)]:hover:bg-surface-2/50">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-ink">{p.name}</p>
                 <p className="truncate text-[11px] text-muted">{p.email}</p>
@@ -256,7 +271,7 @@ export default function OrganizationDetail() {
             No mentors yet. Its admin adds them from inside the workspace.
           </p>
         ) : (
-          <ul className="divide-y divide-line">
+          <ul className="stagger divide-y divide-line">
             {data.trainers.slice(0, 12).map((p) => (
               <li key={p.id} className="flex items-center gap-3 px-5 py-2.5">
                 <div className="min-w-0 flex-1">

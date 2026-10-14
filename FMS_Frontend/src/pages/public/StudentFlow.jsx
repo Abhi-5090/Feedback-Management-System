@@ -156,7 +156,7 @@ function Stepper({ step }) {
               {i < STEPS.length - 1 && (
                 <div className="h-0.5 flex-1 overflow-hidden rounded-full bg-line">
                   <div
-                    className="h-full origin-left rounded-full bg-brand-600 transition-transform duration-500 ease-out-expo"
+                    className="h-full origin-left rounded-full bg-brand-600 transition-transform duration-[280ms] ease-out-expo"
                     style={{ transform: `scaleX(${done ? 1 : 0})` }}
                   />
                 </div>
