@@ -325,6 +325,27 @@ export const updateOrganizationSchema = z
     name: z.string().trim().min(2).max(120).optional(),
     status: z.enum(['active', 'suspended']).optional(),
     notes: z.string().max(2000).optional(),
+    settings: z
+      .object({
+        /* Validated against the runtime's own tz database rather than a list
+           kept here: a hand-maintained list goes stale, and the failure is a
+           date silently rendered in the wrong zone. */
+        timezone: z
+          .string()
+          .max(64)
+          .refine((tz) => {
+            try {
+              new Intl.DateTimeFormat('en', { timeZone: tz });
+              return true;
+            } catch {
+              return false;
+            }
+          }, 'Not a recognised timezone')
+          .optional(),
+        displayName: z.string().max(120).optional(),
+        weekStartsOn: z.enum(['monday', 'sunday']).optional(),
+      })
+      .optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
 

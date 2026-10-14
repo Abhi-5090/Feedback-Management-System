@@ -46,7 +46,23 @@ export const login = asyncHandler(async (req, res) => {
 
 // GET /api/auth/me
 export const me = asyncHandler(async (req, res) => {
-  res.json({ user: req.user });
+  /* The organization rides along because the client needs its TIMEZONE before
+     it renders a single date. Fetching it separately would mean every screen
+     either waits for a second request or renders once in the wrong zone and
+     then corrects itself, which is worse than being consistently wrong. */
+  const organization = req.organization
+    ? {
+        id: String(req.organization._id),
+        name: req.organization.name,
+        slug: req.organization.slug,
+        settings: {
+          timezone: req.organization.settings?.timezone || 'Asia/Kolkata',
+          displayName: req.organization.settings?.displayName || '',
+          weekStartsOn: req.organization.settings?.weekStartsOn || 'monday',
+        },
+      }
+    : null;
+  res.json({ user: req.user, organization });
 });
 
 /**

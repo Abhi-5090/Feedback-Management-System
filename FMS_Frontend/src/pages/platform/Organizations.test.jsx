@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
@@ -20,6 +20,19 @@ vi.mock('../../platform/apiBuild.js', () => ({
   isMissingFeature: (e) => e?.status === 404,
 }));
 
+const ROW = (over = {}) => ({
+  id: 'o1', name: 'NCET', slug: 'ncet', status: 'active',
+  people: 26, classes: 7, batches: 14, openBatches: 0,
+  responses: 1259, responsesLast30: 0, averageRating: 4.3,
+  daysSinceLastResponse: 5, health: 'active', ...over,
+});
+const OVERVIEW = (over = {}) => ({
+  kpis: {
+    organizations: 1, suspended: 0, users: 26, batches: 14, openBatches: 0,
+    responses: 1259, responsesLast30: 0, dormant: 0, neverUsed: 0, ...over,
+  },
+});
+
 const Organizations = (await import('./Organizations.jsx')).default;
 const renderPage = () => render(<MemoryRouter><Organizations /></MemoryRouter>);
 
@@ -31,14 +44,43 @@ beforeEach(() => {
 
 describe('Organizations', () => {
   test('lists what the server returns', async () => {
-    organizations.mockResolvedValue({
-      organizations: [
-        { id: 'o1', name: 'NCET', slug: 'ncet', status: 'active', admins: 1, trainers: 24, classes: 7, batches: 14, responses: 1259 },
-      ],
-    });
-    overview.mockResolvedValue({ kpis: { organizations: 1, suspended: 0, users: 26, batches: 14, responses: 1259 } });
+    organizations.mockResolvedValue({ organizations: [ROW()] });
+    overview.mockResolvedValue(OVERVIEW());
     renderPage();
     expect(await screen.findByText('NCET')).toBeInTheDocument();
+  });
+
+  test('a dormant tenant is marked as such, not just shown with a big number', async () => {
+    /* Volume alone hides the customer about to leave: a large dormant
+       institution looks healthiest of all when sorted by responses. */
+    organizations.mockResolvedValue({
+      organizations: [ROW({ health: 'dormant', daysSinceLastResponse: 120, responses: 9000 })],
+    });
+    overview.mockResolvedValue(OVERVIEW({ dormant: 1 }));
+    renderPage();
+    /* "Dormant" appears twice on purpose — once as the platform-wide count,
+       once as this row's badge — so the query has to say which it means. */
+    const row = (await screen.findByText('NCET')).closest('li');
+    expect(within(row).getByText('Dormant')).toBeInTheDocument();
+    expect(within(row).getByText(/4 months ago/)).toBeInTheDocument();
+  });
+
+  test('a tenant that never collected anything is called out separately', async () => {
+    organizations.mockResolvedValue({
+      organizations: [ROW({ health: 'never-used', responses: 0, averageRating: null, daysSinceLastResponse: null })],
+    });
+    overview.mockResolvedValue(OVERVIEW({ neverUsed: 1, responses: 0 }));
+    renderPage();
+    const row = (await screen.findByText('NCET')).closest('li');
+    expect(within(row).getByText('Never used')).toBeInTheDocument();
+    expect(within(row).getByText(/no responses yet/)).toBeInTheDocument();
+  });
+
+  test('an organization currently collecting says so', async () => {
+    organizations.mockResolvedValue({ organizations: [ROW({ openBatches: 3 })] });
+    overview.mockResolvedValue(OVERVIEW({ openBatches: 3 }));
+    renderPage();
+    expect(await screen.findByText(/3 collecting now/)).toBeInTheDocument();
   });
 
   test('a 404 is reported as an undeployed API, not as a broken page', async () => {

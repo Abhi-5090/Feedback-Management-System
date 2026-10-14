@@ -3,9 +3,9 @@ import { BatchesAPI } from '../api/endpoints.js';
 import Icon from './Icon.jsx';
 import Modal from './Modal.jsx';
 import { useToast } from './Toast.jsx';
+import { useTenantTime } from '../platform/useTenantTime.js';
 
-const day = (d) =>
-  d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '—';
+
 
 /**
  * Sessions whose feedback is ATTRIBUTED to a different mentor team from the
@@ -31,6 +31,10 @@ const day = (d) =>
  */
 export default function RosterDriftPanel() {
   const toast = useToast();
+  /* These are the instants feedback was submitted at, so they belong in the
+     institution's own zone — unlike a phase boundary, which is a calendar
+     date and stays in UTC. */
+  const { formatDay: day } = useTenantTime();
   const [data, setData] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const [busy, setBusy] = useState(false);

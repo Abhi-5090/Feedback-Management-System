@@ -11,6 +11,12 @@ import SummaryStat, { SummaryStrip } from '../../components/SummaryStat.jsx';
 import MonthRangePicker, { monthRange } from '../../components/MonthRangePicker.jsx';
 import InfoTooltip from '../../components/InfoTooltip.jsx';
 
+/* A PHASE BOUNDARY IS A CALENDAR DATE, not an instant. "1 September" is
+   stored as 1 September 00:00 UTC and means that day everywhere — so it is
+   formatted in UTC on purpose. Rendering it in the viewer's or the tenant's
+   zone shifts it to "31 August" for anyone behind UTC, which is exactly the
+   off-by-one this once shipped with. Feedback timestamps are different: they
+   are real instants and do belong in the tenant's zone (see useTenantTime). */
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -21,7 +27,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
    "1 Sept – 1 Oct" and reasonably read it as including October. The boundary
    is the one value in this feature that must not drift by a timezone. */
 const day = (d) =>
-  d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
+  d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' /* see note above */ }) : '—';
 /* The stored end is exclusive; a person reading "ends 1 November" would think
    November is included. Always show the last day actually covered. */
 const lastDay = (endsAt) => day(new Date(new Date(endsAt).getTime() - 1));

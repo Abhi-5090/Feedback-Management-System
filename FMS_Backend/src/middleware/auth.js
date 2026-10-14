@@ -1,6 +1,7 @@
 import { User } from '../models/User.js';
 import { runUnscoped } from '../tenancy/tenantContext.js';
 import { resolveTenantFor, enterResolvedTenant } from './tenant.js';
+import { perOrganizationLimiter } from './rateLimit.js';
 import { AUTH_COOKIE, verifyAuthToken } from '../utils/token.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { unauthorized, forbidden, badRequest } from '../utils/ApiError.js';
@@ -9,7 +10,7 @@ import { unauthorized, forbidden, badRequest } from '../utils/ApiError.js';
  * requireAuth — verifies the JWT from the httpOnly cookie (falls back to a
  * Bearer header for API testing), loads the user, and attaches it to req.user.
  */
-export const requireAuth = asyncHandler(async (req, _res, next) => {
+export const requireAuth = asyncHandler(async (req, res, next) => {
   const bearer = req.headers.authorization?.startsWith('Bearer ')
     ? req.headers.authorization.slice(7)
     : null;
@@ -52,7 +53,12 @@ export const requireAuth = asyncHandler(async (req, _res, next) => {
      current execution context, so it must happen on the synchronous path to
      next() or the handlers downstream never see it. */
   enterResolvedTenant(org);
-  next();
+
+  /* The per-organization budget runs from here because here is the first
+     point the organization is known. Mounted on a router instead, it would
+     either run before the tenant was resolved (and key everything into one
+     bucket) or have to be remembered on every router that exists. */
+  return perOrganizationLimiter(req, res, next);
 });
 
 /**

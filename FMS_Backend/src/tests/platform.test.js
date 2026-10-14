@@ -403,3 +403,54 @@ describe('offboarding an organization', () => {
     expect(entry.meta.removed.users).toBe(1);
   });
 });
+
+describe('the platform dashboard', () => {
+  test('classifies a tenant that has never collected anything', async () => {
+    /* The difference that matters most on this page: a customer that never
+       started was never onboarded, which is a conversation, not a statistic. */
+    await asSuper(request(target()).post('/api/platform/organizations')).send({
+      name: 'Fresh Institute', slug: 'fresh-institute',
+      adminName: 'Fresh Admin', adminEmail: 'admin@fresh.test',
+    });
+    const res = await asSuper(request(target()).get('/api/platform/overview'));
+    expect(res.status).toBe(200);
+
+    const fresh = res.body.organizations.find((o) => o.slug === 'fresh-institute');
+    expect(fresh).toMatchObject({ responses: 0, health: 'never-used', averageRating: null });
+    expect(fresh.lastResponseAt).toBeNull();
+    expect(res.body.kpis.neverUsed).toBeGreaterThanOrEqual(1);
+  });
+
+  test('reports volume, recency and rating for a tenant that is in use', async () => {
+    const res = await asSuper(request(target()).get('/api/platform/overview'));
+    const ncet = res.body.organizations.find((o) => o.slug === 'ncet');
+    expect(ncet.people).toBeGreaterThan(0);
+    expect(ncet).toHaveProperty('responsesLast30');
+    expect(ncet).toHaveProperty('daysSinceLastResponse');
+  });
+
+  test('the headline totals equal the rows beneath them', async () => {
+    /* A summary that disagrees with its own table teaches the reader to
+       trust neither half — the same reason the response rate is derived from
+       collection health rather than computed twice. */
+    const res = await asSuper(request(target()).get('/api/platform/overview'));
+    const { kpis, organizations } = res.body;
+    const sum = (k) => organizations.reduce((t, o) => t + (o[k] || 0), 0);
+    expect(kpis.responses).toBe(sum('responses'));
+    expect(kpis.users).toBe(sum('people'));
+    expect(kpis.batches).toBe(sum('batches'));
+    expect(kpis.organizations).toBe(organizations.length);
+  });
+
+  test("one organization's figures never include another's", async () => {
+    await asSuper(request(target()).post('/api/platform/organizations')).send({
+      name: 'Separate Institute', slug: 'separate-institute',
+      adminName: 'Separate Admin', adminEmail: 'admin@separate.test',
+    });
+    const res = await asSuper(request(target()).get('/api/platform/overview'));
+    const sep = res.body.organizations.find((o) => o.slug === 'separate-institute');
+    // Exactly its own admin, and none of NCET's people or responses.
+    expect(sep.people).toBe(1);
+    expect(sep.responses).toBe(0);
+  });
+});

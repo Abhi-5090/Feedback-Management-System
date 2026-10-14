@@ -245,3 +245,48 @@ describe('roles', () => {
     await runUnscoped(() => Organization.updateOne({ _id: ncet._id }, { $set: { status: 'active' } }));
   });
 });
+
+describe('one organization cannot spend another\'s API budget', () => {
+  /**
+   * Shared capacity is the thing a per-IP limit cannot express. "A tenant" is
+   * not an address — it is thirty staff on thirty networks — so an
+   * institution running a bulk import competes with every other institution
+   * for the same server, and the ones that suffer have no idea why.
+   *
+   * The limit itself is effectively disabled under test, so what is asserted
+   * is the KEYING: counters move independently per organization. A single
+   * shared bucket would show one counter moving for everyone.
+   */
+  const remaining = (res) =>
+    Number(res.headers['ratelimit-remaining'] ?? res.headers['x-ratelimit-remaining']);
+
+  test('each organization burns down its own counter', async () => {
+    let mine;
+    for (let i = 0; i < 3; i += 1) {
+      mine = await request(target()).get('/api/classes').set('Authorization', `Bearer ${adminToken}`);
+    }
+    const theirs = await request(target())
+      .get('/api/classes')
+      .set('Authorization', `Bearer ${otherAdminToken}`);
+
+    expect(remaining(mine)).toEqual(expect.any(Number));
+    expect(remaining(theirs)).toEqual(expect.any(Number));
+    /* Three requests against one organization must not have spent the other's
+       budget: theirs is still nearer its ceiling. */
+    expect(remaining(theirs)).toBeGreaterThan(remaining(mine));
+  });
+
+  test('a super admin is not billed to whichever organization they are viewing', async () => {
+    /* They act across tenants by design; charging their traffic to the tenant
+       they happen to have selected would make one customer's budget depend on
+       what the operator was looking at. */
+    const before = await request(target()).get('/api/classes').set('Authorization', `Bearer ${adminToken}`);
+    const superToken = await loginToken(request, 'root@tenancy.test', ADMIN_PASSWORD).catch(() => null);
+    if (!superToken) return; // no super admin in this fixture set
+    await request(target()).get('/api/classes')
+      .set('Authorization', `Bearer ${superToken}`)
+      .set('X-Organization', String(ncet._id));
+    const after = await request(target()).get('/api/classes').set('Authorization', `Bearer ${adminToken}`);
+    expect(remaining(before) - remaining(after)).toBe(1);
+  });
+});

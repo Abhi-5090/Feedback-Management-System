@@ -114,6 +114,9 @@ export const env = {
      the same period, and a whole campus shares one NAT address. 5000/min leaves
      ample headroom for that while still stopping a scripted flood dead. */
   publicIpMax: parseInt(process.env.PUBLIC_IP_MAX || '5000', 10),
+  /* Requests per minute per ORGANIZATION on authenticated routes. Shared
+     API capacity, so this is what stops one customer degrading another. */
+  tenantApiMax: Number(process.env.TENANT_API_MAX || 600),
   // Login is keyed on email+IP so one person fat-fingering their password
   // cannot lock out everyone else sharing the network.
   loginMaxPerIdentity: parseInt(process.env.LOGIN_MAX_PER_IDENTITY || '20', 10),

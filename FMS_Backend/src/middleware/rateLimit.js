@@ -179,3 +179,42 @@ export const loginLimiter = [
     },
   }),
 ];
+
+/**
+ * A budget per ORGANIZATION, on authenticated traffic.
+ *
+ * Every limiter above protects the platform from one client. None of them
+ * protects one customer from another: the API is shared capacity, so an
+ * institution running a bulk import, an export and a dashboard poll at once
+ * competes with every other institution for the same server, and the ones
+ * that suffer have no idea why. A per-IP control cannot express that, because
+ * "a tenant" is not an address — it is thirty staff on thirty networks.
+ *
+ * Keyed on req.organization, which requireAuth has already resolved, so this
+ * costs nothing extra and cannot be influenced by the client: a member's
+ * organization comes from their own record, never from the request.
+ *
+ * Sized to be invisible in normal use. A busy admin refreshing a dashboard
+ * that polls every 8 seconds, with exports and a bulk import running, stays
+ * an order of magnitude below it; sustained traffic past this point is a
+ * runaway script, which is exactly what should be slowed down before it
+ * degrades somebody else's afternoon.
+ */
+export const perOrganizationLimiter = rateLimit({
+  ...shared,
+  store: new ClusterMemoryStore('tenant-api'),
+  windowMs: 60 * 1000,
+  max: isTest ? 1_000_000 : env.tenantApiMax,
+  keyGenerator: (req) => `org:${req.organization?._id || 'none'}`,
+  /* A super admin acting across tenants, and anything that somehow arrives
+     unauthenticated, are governed by the other limiters rather than sharing a
+     bucket with whichever organization happens to be selected. */
+  skip: (req) => !req.organization || req.user?.role === 'superadmin',
+  handler: (_req, res) => {
+    res.status(429).json({
+      error:
+        'Your organization is making too many requests at once. Please wait a moment — this limit exists so one institution cannot slow down another.',
+      code: 'TENANT_RATE_LIMITED',
+    });
+  },
+});

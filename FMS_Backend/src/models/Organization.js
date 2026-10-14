@@ -44,6 +44,27 @@ const organizationSchema = new mongoose.Schema(
     // Free text for whoever administers the platform. Never shown to members.
     notes: { type: String, maxlength: 2000, default: '' },
 
+    /**
+     * Settings that belong to the institution rather than the platform.
+     *
+     * TIMEZONE IS THE ONE THAT CHANGES WHAT PEOPLE READ. Feedback is stamped
+     * in UTC, which is correct for storage and wrong for every sentence a
+     * human reads: a session collected at 9pm in Hyderabad is "the 30th"
+     * there and "the 29th" in UTC, so a phase boundary, a collection date and
+     * a daily trend can all be off by one. Rendering in the institution's own
+     * zone is the difference between a report being right and being nearly
+     * right.
+     */
+    settings: {
+      timezone: { type: String, default: 'Asia/Kolkata', maxlength: 64 },
+      /* Shown on exports and the sign-in screen. A tenant that sees its own
+         name is a tenant that believes the system is theirs. */
+      displayName: { type: String, default: '', maxlength: 120 },
+      /* Where a report's week starts. Changing it silently reshapes every
+         weekly figure, so it is a setting rather than an assumption. */
+      weekStartsOn: { type: String, enum: ['monday', 'sunday'], default: 'monday' },
+    },
+
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     archivedAt: { type: Date, default: null },
   },

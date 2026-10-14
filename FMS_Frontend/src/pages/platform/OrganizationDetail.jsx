@@ -10,9 +10,9 @@ import StatTile from '../../components/StatTile.jsx';
 import OneTimeSecret from '../../components/OneTimeSecret.jsx';
 import AdminCredentialFields from '../../components/AdminCredentialFields.jsx';
 import { SkeletonBlock } from '../../components/Spinner.jsx';
+import { useTenantTime } from '../../platform/useTenantTime.js';
 
-const day = (d) =>
-  d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
+
 
 /**
  * One organization, in full.
@@ -27,6 +27,7 @@ export default function OrganizationDetail() {
   const toast = useToast();
   const navigate = useNavigate();
   const { setOrg } = useOrgScope();
+  const { formatFull: day } = useTenantTime();
 
   const [data, setData] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -38,6 +39,8 @@ export default function OrganizationDetail() {
   const [deleting, setDeleting] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [draftSettings, setDraftSettings] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -127,6 +130,18 @@ export default function OrganizationDetail() {
     }
   };
 
+  const saveSettings = async (e) => {
+    e.preventDefault();
+    try {
+      await PlatformAPI.update(id, { settings: draftSettings });
+      setSettingsOpen(false);
+      toast.success('Settings saved');
+      load();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
   const rename = async (e) => {
     e.preventDefault();
     try {
@@ -156,7 +171,7 @@ export default function OrganizationDetail() {
               )}
             </h1>
             <p className="mt-1 text-sm text-muted">
-              {org.slug} · created {day(org.createdAt)}
+              {org.slug} · {org.settings?.timezone || 'Asia/Kolkata'} · created {day(org.createdAt)}
               {org.lastResponseAt && <> · last response {day(org.lastResponseAt)}</>}
             </p>
           </div>
@@ -317,6 +332,60 @@ export default function OrganizationDetail() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title="Organization settings"
+        description="These change what this institution's own people see."
+      >
+        {draftSettings && (
+          <form onSubmit={saveSettings} className="space-y-4">
+            <div>
+              <label className="label" htmlFor="tz">Timezone</label>
+              <select
+                id="tz"
+                className="input"
+                value={draftSettings.timezone}
+                onChange={(e) => setDraftSettings((d) => ({ ...d, timezone: e.target.value }))}
+              >
+                {/* Read from the browser's own tz database where it is
+                    available, so the list cannot go stale the way a
+                    hand-written one does. */}
+                {(typeof Intl.supportedValuesOf === 'function'
+                  ? Intl.supportedValuesOf('timeZone')
+                  : ['Asia/Kolkata', 'UTC', 'Europe/London', 'America/New_York']
+                ).map((tz) => (
+                  <option key={tz} value={tz}>{tz}</option>
+                ))}
+              </select>
+              <p className="hint">
+                Feedback is stored in UTC and shown in this zone. A session collected at 9pm is
+                &ldquo;the 30th&rdquo; here and &ldquo;the 29th&rdquo; in UTC &mdash; this is what makes
+                dates in their reports match the days their students remember.
+              </p>
+            </div>
+
+            <div>
+              <label className="label" htmlFor="week-start">Weeks start on</label>
+              <select
+                id="week-start"
+                className="input"
+                value={draftSettings.weekStartsOn}
+                onChange={(e) => setDraftSettings((d) => ({ ...d, weekStartsOn: e.target.value }))}
+              >
+                <option value="monday">Monday</option>
+                <option value="sunday">Sunday</option>
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-ghost" onClick={() => setSettingsOpen(false)}>Cancel</button>
+              <button type="submit" className="btn-primary">Save settings</button>
+            </div>
+          </form>
+        )}
       </Modal>
 
       <Modal open={renaming} onClose={() => setRenaming(false)} title="Rename organization"

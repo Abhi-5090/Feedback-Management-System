@@ -13,6 +13,26 @@ import OneTimeSecret from '../../components/OneTimeSecret.jsx';
 import AdminCredentialFields from '../../components/AdminCredentialFields.jsx';
 import { fetchApiBuild, isMissingFeature } from '../../platform/apiBuild.js';
 
+/* Three states, because they call for three different actions: still
+   collecting needs nothing, gone quiet is worth a conversation, never started
+   was never onboarded. */
+const HEALTH = {
+  active: { label: 'Active', cls: 'bg-emerald-500/14 text-emerald-700 dark:text-emerald-400' },
+  dormant: { label: 'Dormant', cls: 'bg-amber-500/14 text-amber-700 dark:text-amber-400' },
+  'never-used': { label: 'Never used', cls: 'bg-rose-500/14 text-rose-700 dark:text-rose-400' },
+};
+
+const ago = (days) =>
+  days === null || days === undefined
+    ? 'no responses yet'
+    : days === 0
+      ? 'today'
+      : days === 1
+        ? 'yesterday'
+        : days < 60
+          ? `${days} days ago`
+          : `${Math.round(days / 30)} months ago`;
+
 const slugify = (s) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 
@@ -102,12 +122,19 @@ export default function Organizations() {
 
       {overview && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <StatTile label="Organizations" value={overview.organizations} icon="building" tone="neutral" />
-          <StatTile label="Suspended" value={overview.suspended} icon="lock"
-            tone={overview.suspended > 0 ? 'warn' : 'neutral'} delay={40} />
-          <StatTile label="People" value={overview.users} icon="users" tone="neutral" delay={80} />
-          <StatTile label="Cohorts" value={overview.batches} icon="ticket" tone="neutral" delay={120} />
-          <StatTile label="Responses" value={overview.responses} icon="inbox" tone="neutral" delay={160} />
+          <StatTile label="Organizations" value={overview.organizations} icon="building" tone="neutral"
+            sub={overview.suspended > 0 ? `${overview.suspended} suspended` : 'all active'} />
+          {/* The two tiles that are a worklist rather than a figure. */}
+          <StatTile label="Dormant" value={overview.dormant} icon="alert" delay={40}
+            tone={overview.dormant > 0 ? 'warn' : 'good'}
+            hint="No feedback collected in the last 45 days. A big dormant customer is the one about to leave." />
+          <StatTile label="Never used" value={overview.neverUsed} icon="x" delay={80}
+            tone={overview.neverUsed > 0 ? 'bad' : 'good'}
+            hint="Created but never collected anything — almost always an onboarding that stopped halfway." />
+          <StatTile label="Collecting now" value={overview.openBatches} icon="unlock" delay={120}
+            tone={overview.openBatches > 0 ? 'good' : 'neutral'} sub="cohorts open" />
+          <StatTile label="Responses" value={overview.responses} icon="inbox" tone="neutral" delay={160}
+            sub={`${(overview.responsesLast30 || 0).toLocaleString()} in 30 days`} />
         </div>
       )}
 
@@ -139,22 +166,52 @@ export default function Organizations() {
         <Card title="All organizations" icon="building" subtitle={`${data.length} on the platform`}>
           <ul className="divide-y divide-line">
             {data.map((o) => (
-              <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5">
+              <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4">
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-2 truncate text-sm font-semibold text-ink">
                     {o.name}
+                    <span
+                      className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        (HEALTH[o.health] || HEALTH.active).cls
+                      }`}
+                    >
+                      {(HEALTH[o.health] || HEALTH.active).label}
+                    </span>
                     {o.status === 'suspended' && (
-                      <span className="rounded-md bg-amber-500/12 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                      <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted">
                         Suspended
                       </span>
                     )}
                   </p>
                   <p className="truncate text-[11px] text-muted">
-                    {o.slug} · {o.admins} admin{o.admins === 1 ? '' : 's'} · {o.trainers} mentors ·{' '}
-                    {o.classes} subjects · {o.batches} cohorts ·{' '}
-                    <span className="tnum font-medium text-ink">{o.responses.toLocaleString()}</span> responses
+                    {o.slug} · {o.people} people · {o.classes} subjects · {o.batches} cohorts
+                    {o.openBatches > 0 && (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        {' '}· {o.openBatches} collecting now
+                      </span>
+                    )}
                   </p>
                 </div>
+
+                {/* Volume, recency and rating together: a big dormant customer
+                    is the one about to leave, and a count alone hides that. */}
+                <div className="flex shrink-0 items-center gap-5 text-right">
+                  <div>
+                    <p className="tnum text-sm font-bold text-ink">{o.responses.toLocaleString()}</p>
+                    <p className="text-[10px] uppercase tracking-wider text-subtle">responses</p>
+                  </div>
+                  <div className="hidden sm:block">
+                    <p className="tnum text-sm font-bold text-ink">
+                      {o.averageRating === null ? '—' : o.averageRating.toFixed(2)}
+                    </p>
+                    <p className="text-[10px] uppercase tracking-wider text-subtle">avg rating</p>
+                  </div>
+                  <div className="hidden md:block">
+                    <p className="text-xs font-medium text-ink">{ago(o.daysSinceLastResponse)}</p>
+                    <p className="text-[10px] uppercase tracking-wider text-subtle">last response</p>
+                  </div>
+                </div>
+
                 <div className="flex shrink-0 gap-2">
                   <button
                     className="btn-outline !py-1.5 text-xs"

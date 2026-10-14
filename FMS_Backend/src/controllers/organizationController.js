@@ -56,6 +56,11 @@ const shape = (o, stats) => ({
   notes: o.notes || '',
   createdAt: o.createdAt,
   archivedAt: o.archivedAt || null,
+  settings: {
+    timezone: o.settings?.timezone || 'Asia/Kolkata',
+    displayName: o.settings?.displayName || '',
+    weekStartsOn: o.settings?.weekStartsOn || 'monday',
+  },
   ...(stats || {}),
 });
 
@@ -196,11 +201,16 @@ export const updateOrganization = asyncHandler(async (req, res) => {
   const org = await Organization.findById(req.params.id);
   if (!org) throw notFound('Organization not found');
 
-  const { name, status, notes } = req.body;
-  const before = { name: org.name, status: org.status };
+  const { name, status, notes, settings } = req.body;
+  const before = { name: org.name, status: org.status, settings: { ...org.settings } };
 
   if (name !== undefined) org.name = String(name).trim();
   if (notes !== undefined) org.notes = notes;
+  if (settings) {
+    /* Merged, not replaced: a client sending only a timezone must not reset
+       the other settings to their defaults as a side effect. */
+    org.settings = { ...(org.settings?.toObject?.() ?? org.settings ?? {}), ...settings };
+  }
   if (status !== undefined) {
     if (!['active', 'suspended'].includes(status)) throw badRequest('Unknown status');
     org.status = status;
@@ -212,7 +222,7 @@ export const updateOrganization = asyncHandler(async (req, res) => {
     entity: 'organization',
     entityId: org._id,
     entityName: org.name,
-    meta: { before, after: { name: org.name, status: org.status } },
+    meta: { before, after: { name: org.name, status: org.status, settings: { ...org.settings } } },
   });
 
   res.json({ organization: shape(org) });
@@ -494,22 +504,99 @@ export const deleteOrganization = asyncHandler(async (req, res) => {
  * organization picker is built from.
  */
 export const platformOverview = asyncHandler(async (_req, res) => {
-  const [orgs, totalOrgs, suspended, users, responses, batches] = await Promise.all([
-    Organization.find({ archivedAt: null }).select('name slug status').sort({ name: 1 }).lean(),
-    Organization.countDocuments({ archivedAt: null }),
+  const [orgs, suspended] = await Promise.all([
+    Organization.find({ archivedAt: null }).select('name slug status createdAt').sort({ name: 1 }).lean(),
     Organization.countDocuments({ status: 'suspended', archivedAt: null }),
-    User.countDocuments({ isActive: true, role: { $ne: 'superadmin' } }),
-    Feedback.countDocuments({}),
-    Batch.countDocuments({ archivedAt: null }),
+  ]);
+  const ids = orgs.map((o) => o._id);
+
+  /* One grouped pass per collection rather than four queries per tenant: at
+     twenty organizations that is the difference between 5 round trips and 80.
+     Counted unscoped deliberately — this is the one view that sees across. */
+  const groupBy = async (Model, extra = {}, stage = null) => {
+    const rows = await Model.aggregate([
+      { $match: { organization: { $in: ids }, ...extra } },
+      stage || { $group: { _id: '$organization', n: { $sum: 1 } } },
+    ]);
+    return new Map(rows.map((r) => [String(r._id), r]));
+  };
+
+  const THIRTY_DAYS = new Date(Date.now() - 30 * 86400_000);
+
+  const [people, classes, batches, openBatches, responses, recent, quality] = await Promise.all([
+    groupBy(User, { isActive: true, role: { $ne: 'superadmin' } }),
+    groupBy(Class, { archivedAt: null }),
+    groupBy(Batch, { archivedAt: null }),
+    groupBy(Batch, { status: 'open', archivedAt: null }),
+    groupBy(Feedback),
+    groupBy(Feedback, { createdAt: { $gte: THIRTY_DAYS } }),
+    /* Average star and last activity in one pass. A tenant's health is not
+       how much data it holds — a big dormant customer is the one about to
+       leave — so recency sits beside volume rather than under it. */
+    Feedback.aggregate([
+      { $match: { organization: { $in: ids } } },
+      { $unwind: '$ratings' },
+      {
+        $group: {
+          _id: '$organization',
+          starSum: { $sum: '$ratings.stars' },
+          starCount: { $sum: 1 },
+          lastAt: { $max: '$createdAt' },
+        },
+      },
+    ]).then((rows) => new Map(rows.map((r) => [String(r._id), r]))),
   ]);
 
-  res.json({
-    kpis: { organizations: totalOrgs, suspended, users, responses, batches },
-    organizations: orgs.map((o) => ({
-      id: String(o._id),
+  const n = (map, id) => map.get(String(id))?.n || 0;
+
+  const organizations = orgs.map((o) => {
+    const id = String(o._id);
+    const q = quality.get(id);
+    const lastAt = q?.lastAt || null;
+    const daysSince = lastAt ? Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400_000) : null;
+
+    /* Three states, because they call for three different actions: a customer
+       still collecting needs nothing, one that has gone quiet is worth a
+       conversation, and one that never started was never onboarded. The
+       difference matters more than any count on this page. */
+    const health =
+      n(responses, o._id) === 0 ? 'never-used' : daysSince !== null && daysSince <= 45 ? 'active' : 'dormant';
+
+    return {
+      id,
       name: o.name,
       slug: o.slug,
       status: o.status,
-    })),
+      createdAt: o.createdAt,
+      people: n(people, o._id),
+      classes: n(classes, o._id),
+      batches: n(batches, o._id),
+      openBatches: n(openBatches, o._id),
+      responses: n(responses, o._id),
+      responsesLast30: n(recent, o._id),
+      averageRating: q?.starCount ? Math.round((q.starSum / q.starCount) * 100) / 100 : null,
+      lastResponseAt: lastAt,
+      daysSinceLastResponse: daysSince,
+      health,
+    };
+  });
+
+  const sum = (key) => organizations.reduce((t, o) => t + (o[key] || 0), 0);
+
+  res.json({
+    kpis: {
+      organizations: orgs.length,
+      suspended,
+      /* Counted here rather than summed from the rows so the headline cannot
+         drift from what the table beneath it says. */
+      users: sum('people'),
+      batches: sum('batches'),
+      openBatches: sum('openBatches'),
+      responses: sum('responses'),
+      responsesLast30: sum('responsesLast30'),
+      dormant: organizations.filter((o) => o.health === 'dormant').length,
+      neverUsed: organizations.filter((o) => o.health === 'never-used').length,
+    },
+    organizations,
   });
 });
