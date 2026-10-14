@@ -293,3 +293,113 @@ describe('the migration', () => {
     setAmbientTenant({ organization: testOrg._id });
   });
 });
+
+describe('offboarding an organization', () => {
+  let orgId, slug;
+
+  beforeEach(async () => {
+    slug = 'leaving-institute';
+    const res = await asSuper(request(target()).post('/api/platform/organizations')).send({
+      name: 'Leaving Institute', slug,
+      adminName: 'Leaving Admin', adminEmail: 'admin@leaving.test',
+    });
+    orgId = res.body.organization.id;
+  });
+
+  test('exports everything that organization owns, as readable JSON', async () => {
+    const res = await asSuper(request(target()).get(`/api/platform/organizations/${orgId}/export`));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toContain(`${slug}-export-`);
+
+    const archive = JSON.parse(res.text);
+    expect(archive.organization.slug).toBe(slug);
+    expect(archive.counts.users).toBe(1);
+    expect(archive.counts.parameters).toBeGreaterThan(0);
+  });
+
+  test('the export carries no password hashes', async () => {
+    /* Useless to the recipient, and the one field whose leak compounds across
+       every other system those people use. An export is also the likeliest
+       copy of this data to end up on a laptop. */
+    const res = await asSuper(request(target()).get(`/api/platform/organizations/${orgId}/export`));
+    expect(res.text).not.toContain('passwordHash');
+    expect(JSON.parse(res.text).data.users[0].passwordHash).toBeUndefined();
+  });
+
+  test("the export contains only that organization's rows", async () => {
+    await makeClass(null, 'NCET Only Subject');
+    const res = await asSuper(request(target()).get(`/api/platform/organizations/${orgId}/export`));
+    expect(res.text).not.toContain('NCET Only Subject');
+    expect(res.text).not.toContain('admin@test.com');
+  });
+
+  test('deleting an ACTIVE organization is refused — suspend first', async () => {
+    /* Removal must always be a second, deliberate decision taken after access
+       was cut, never the first thing a misclick can reach. */
+    const res = await asSuper(request(target()).delete(`/api/platform/organizations/${orgId}`))
+      .send({ confirm: slug });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('SUSPEND_FIRST');
+    expect(await runUnscoped(() => Organization.countDocuments({ slug }))).toBe(1);
+  });
+
+  test('deleting without typing the handle back is refused', async () => {
+    await asSuper(request(target()).patch(`/api/platform/organizations/${orgId}`))
+      .send({ status: 'suspended' });
+
+    for (const confirm of ['', 'yes', 'Leaving Institute']) {
+      const res = await asSuper(request(target()).delete(`/api/platform/organizations/${orgId}`))
+        .send({ confirm });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('CONFIRM_REQUIRED');
+    }
+    expect(await runUnscoped(() => Organization.countDocuments({ slug }))).toBe(1);
+  });
+
+  test('a suspended organization with the handle typed back is removed entirely', async () => {
+    await asSuper(request(target()).patch(`/api/platform/organizations/${orgId}`))
+      .send({ status: 'suspended' });
+
+    const res = await asSuper(request(target()).delete(`/api/platform/organizations/${orgId}`))
+      .send({ confirm: slug.toUpperCase() }); // case-insensitive on purpose
+    expect(res.status).toBe(200);
+    expect(res.body.removed.users).toBe(1);
+
+    const orgDoc = await runUnscoped(() => Organization.findById(orgId));
+    expect(orgDoc).toBeNull();
+    expect(await runUnscoped(() => User.countDocuments({ email: 'admin@leaving.test' }))).toBe(0);
+    expect(await runUnscoped(() => Parameter.countDocuments({ organization: orgId }))).toBe(0);
+  });
+
+  test('deleting one organization leaves every other untouched', async () => {
+    await makeClass(null, 'NCET Survives');
+    await asSuper(request(target()).patch(`/api/platform/organizations/${orgId}`))
+      .send({ status: 'suspended' });
+    await asSuper(request(target()).delete(`/api/platform/organizations/${orgId}`))
+      .send({ confirm: slug });
+
+    const ncet = await runUnscoped(() => Organization.findOne({ slug: 'ncet' }));
+    expect(ncet).toBeTruthy();
+    const survived = await runUnscoped(() =>
+      Class.countDocuments({ organization: ncet._id, name: 'NCET Survives' })
+    );
+    expect(survived).toBe(1);
+  });
+
+  test('the record of the deletion outlives the tenant', async () => {
+    /* The audit entry belongs to the platform, not to the tenant, so the
+       account of what happened survives what it happened to. */
+    await asSuper(request(target()).patch(`/api/platform/organizations/${orgId}`))
+      .send({ status: 'suspended' });
+    await asSuper(request(target()).delete(`/api/platform/organizations/${orgId}`))
+      .send({ confirm: slug });
+
+    await new Promise((r) => setTimeout(r, 150));
+    const entry = await runUnscoped(() =>
+      AuditLog.findOne({ action: 'organization.delete' }).lean()
+    );
+    expect(entry).toBeTruthy();
+    expect(entry.entityName).toBe('Leaving Institute');
+    expect(entry.meta.removed.users).toBe(1);
+  });
+});

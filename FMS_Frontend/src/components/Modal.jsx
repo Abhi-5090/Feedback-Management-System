@@ -68,8 +68,15 @@ export default function Modal({ open, onClose, title, description, children, max
 
     restoreTo.current = document.activeElement;
     const { overflow, paddingRight } = document.body.style;
-    // Compensate for the removed scrollbar so the page doesn't shift sideways.
-    const gap = window.innerWidth - document.documentElement.clientWidth;
+    /* Compensate for the removed scrollbar so the page doesn't shift sideways.
+       CLAMPED, because this is a measurement and measurements can come back
+       nonsense: if documentElement.clientWidth reports 0 — which it does in
+       jsdom, and can transiently in a real browser before first layout — the
+       "gap" is the entire window width and the page gets a thousand pixels of
+       padding. A real scrollbar is never more than a few dozen pixels wide, so
+       anything outside that range is not a scrollbar and is ignored. */
+    const measured = window.innerWidth - document.documentElement.clientWidth;
+    const gap = Number.isFinite(measured) && measured > 0 && measured <= 40 ? measured : 0;
     document.body.style.overflow = 'hidden';
     if (gap > 0) document.body.style.paddingRight = `${gap}px`;
 

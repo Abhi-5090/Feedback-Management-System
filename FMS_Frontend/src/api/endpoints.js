@@ -170,4 +170,11 @@ export const PlatformAPI = {
   addAdmin: (id, body) => api.post(`/platform/organizations/${id}/admins`, body).then((r) => r.data),
   resetAdmin: (id, userId) =>
     api.post(`/platform/organizations/${id}/admins/${userId}/reset-password`).then((r) => r.data),
+  /* Blob, not JSON: this is a file the operator keeps, and parsing it into
+     memory only to re-serialise it would cap the export at whatever the tab
+     can hold. */
+  exportOrg: (id) =>
+    api.get(`/platform/organizations/${id}/export`, { responseType: 'blob' }).then((r) => r.data),
+  remove: (id, confirm) =>
+    api.delete(`/platform/organizations/${id}`, { data: { confirm } }).then((r) => r.data),
 };

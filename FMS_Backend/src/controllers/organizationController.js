@@ -5,6 +5,9 @@ import { Batch } from '../models/Batch.js';
 import { Class } from '../models/Class.js';
 import { Feedback } from '../models/Feedback.js';
 import { Parameter } from '../models/Parameter.js';
+import { Phase } from '../models/Phase.js';
+import { AuditLog } from '../models/AuditLog.js';
+import { DeviceLock } from '../models/DeviceLock.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { badRequest, notFound, conflict } from '../utils/ApiError.js';
 import {
@@ -341,6 +344,148 @@ export const resetAdminPassword = asyncHandler(async (req, res) => {
   });
 
   res.json({ admin: { id: String(user._id), name: user.name, email: user.email }, temporaryPassword: tempPassword });
+});
+
+
+/* Every collection that belongs to a tenant, in the order a human would read
+   them back: the shape of the institution first, then what students said. */
+const TENANT_COLLECTIONS = [
+  ['organization', null],
+  ['users', User],
+  ['classes', Class],
+  ['batches', Batch],
+  ['parameters', Parameter],
+  ['phases', Phase],
+  ['feedback', Feedback],
+  ['auditLog', AuditLog],
+];
+
+/**
+ * GET /api/v1/platform/organizations/:id/export
+ *
+ * Everything one organization owns, as a single JSON document.
+ *
+ * An institution that leaves has a right to its data, and the people who run
+ * it are the ones who will need it — so this is a plain, readable archive
+ * rather than a database dump that only this application can open. It is also
+ * the thing that makes deletion safe to offer at all: a delete with no way to
+ * take a copy first is a delete nobody should ever be asked to confirm.
+ *
+ * Password hashes are stripped. They are useless to the recipient, they are
+ * the one field whose leak compounds across every other system those people
+ * use, and an export is the likeliest copy of this data to end up on someone's
+ * laptop.
+ */
+export const exportOrganization = asyncHandler(async (req, res) => {
+  const org = await Organization.findById(req.params.id).lean();
+  if (!org) throw notFound('Organization not found');
+
+  const archive = {
+    exportedAt: new Date().toISOString(),
+    exportedBy: req.user?.email || 'unknown',
+    organization: {
+      id: String(org._id),
+      name: org.name,
+      slug: org.slug,
+      status: org.status,
+      createdAt: org.createdAt,
+    },
+    counts: {},
+    data: {},
+  };
+
+  await runWithTenant(org._id, async () => {
+    for (const [key, Model] of TENANT_COLLECTIONS) {
+      if (!Model) continue;
+      const rows = await Model.find({}).lean();
+      archive.data[key] = rows.map((r) => {
+        if (Model !== User) return r;
+        /* eslint-disable-next-line no-unused-vars */
+        const { passwordHash, tokenVersion, ...safe } = r;
+        return safe;
+      });
+      archive.counts[key] = rows.length;
+    }
+  });
+
+  recordAudit(req, {
+    action: 'organization.export',
+    entity: 'organization',
+    entityId: org._id,
+    entityName: org.name,
+    meta: { counts: archive.counts },
+  });
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${org.slug}-export-${new Date().toISOString().slice(0, 10)}.json"`
+  );
+  res.send(JSON.stringify(archive, null, 2));
+});
+
+/**
+ * DELETE /api/v1/platform/organizations/:id
+ *
+ * Permanent removal of a tenant and everything in it.
+ *
+ * THREE GATES, because this is the one action in the product that cannot be
+ * undone and destroys other people's data:
+ *
+ *   1. the organization must already be SUSPENDED — so removal is always a
+ *      second, deliberate decision taken after access was cut, never the
+ *      first thing a misclick can reach;
+ *   2. the caller must type the handle back, which is the difference between
+ *      confirming and acknowledging;
+ *   3. what was destroyed is recorded BEFORE destroying it, since afterwards
+ *      there is nothing left to count.
+ *
+ * The audit entry survives deliberately: it belongs to the platform, not to
+ * the tenant, so the record of what happened outlives what it happened to.
+ */
+export const deleteOrganization = asyncHandler(async (req, res) => {
+  const org = await Organization.findById(req.params.id);
+  if (!org) throw notFound('Organization not found');
+
+  if (org.status !== 'suspended') {
+    throw badRequest(
+      'Suspend the organization before deleting it. Deletion is permanent, so it is deliberately a second step.',
+      'SUSPEND_FIRST'
+    );
+  }
+  if (String(req.body?.confirm || '').trim().toLowerCase() !== org.slug) {
+    throw badRequest(`Type the handle "${org.slug}" to confirm.`, 'CONFIRM_REQUIRED');
+  }
+
+  const removed = {};
+  await runWithTenant(org._id, async () => {
+    for (const [key, Model] of TENANT_COLLECTIONS) {
+      if (!Model) continue;
+      removed[key] = await Model.countDocuments({});
+    }
+    // DeviceLock is scoped too, and belongs to the tenant's collection windows.
+    removed.deviceLocks = await DeviceLock.countDocuments({});
+    for (const [, Model] of TENANT_COLLECTIONS) {
+      if (Model && Model !== AuditLog) await Model.deleteMany({});
+    }
+    await DeviceLock.deleteMany({});
+  });
+
+  /* The audit rows are removed LAST and unscoped, after the entry recording
+     this deletion has been written — otherwise the act of deleting erases its
+     own evidence. */
+  recordAudit(req, {
+    action: 'organization.delete',
+    entity: 'organization',
+    entityId: org._id,
+    entityName: org.name,
+    meta: { slug: org.slug, removed },
+  });
+
+  await runWithTenant(org._id, () => AuditLog.deleteMany({ organization: org._id }));
+  await Organization.deleteOne({ _id: org._id });
+
+  res.json({ deleted: true, organization: { name: org.name, slug: org.slug }, removed });
 });
 
 /**

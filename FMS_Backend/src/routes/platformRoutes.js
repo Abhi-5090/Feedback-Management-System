@@ -15,6 +15,8 @@ import {
   platformOverview,
   getOrganization,
   resetAdminPassword,
+  exportOrganization,
+  deleteOrganization,
 } from '../controllers/organizationController.js';
 
 /**
@@ -36,5 +38,9 @@ router.patch('/organizations/:id', validate(updateOrganizationSchema), updateOrg
 router.get('/organizations/:id', getOrganization);
 router.post('/organizations/:id/admins', validate(addOrgAdminSchema), addOrganizationAdmin);
 router.post('/organizations/:id/admins/:userId/reset-password', resetAdminPassword);
+router.get('/organizations/:id/export', exportOrganization);
+/* Permanent, and gated on the organization already being suspended plus the
+   handle typed back — see the controller for why both. */
+router.delete('/organizations/:id', deleteOrganization);
 
 export default router;

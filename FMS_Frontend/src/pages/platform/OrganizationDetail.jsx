@@ -35,6 +35,9 @@ export default function OrganizationDetail() {
   const [issued, setIssued] = useState(null);
   const [renaming, setRenaming] = useState(false);
   const [draftName, setDraftName] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -88,6 +91,39 @@ export default function OrganizationDetail() {
       load();
     } catch (e) {
       toast.error(e.message);
+    }
+  };
+
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      const blob = await PlatformAPI.exportOrg(id);
+      /* Handed straight to the browser as a download rather than shown: it is
+         a file the operator keeps, and it holds every student comment. */
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${org.slug}-export-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Export downloaded');
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const removeOrg = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await PlatformAPI.remove(id, confirmText);
+      toast.success(`${res.organization.name} deleted`);
+      navigate('/platform');
+    } catch (err) {
+      toast.error(err.message);
     }
   };
 
@@ -224,6 +260,38 @@ export default function OrganizationDetail() {
         )}
       </Card>
 
+      {/* Kept to the bottom and visually separate. These two actions are the
+          only ones here that leave the product's data different afterwards,
+          and one of them cannot be undone. */}
+      <section className="rounded-2xl border border-rose-500/25 bg-rose-500/[0.04] p-5">
+        <h2 className="text-sm font-bold text-ink">Leaving the platform</h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          An institution that leaves has a right to its data and to its removal. Take the export
+          first — after deletion there is nothing left to take a copy of.
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button className="btn-outline !py-2 text-xs" onClick={exportData} disabled={exporting}>
+            <Icon name="download" size={15} />
+            {exporting ? 'Preparing…' : 'Export all data'}
+          </button>
+          <button
+            className="btn-ghost !py-2 text-xs text-rose-600 hover:bg-rose-500/10 dark:text-rose-400"
+            onClick={() => { setConfirmText(''); setDeleting(true); }}
+            disabled={!suspended}
+            title={suspended ? undefined : 'Suspend the organization first'}
+          >
+            <Icon name="trash" size={15} /> Delete permanently
+          </button>
+        </div>
+        {!suspended && (
+          <p className="mt-2 text-[11px] text-subtle">
+            Deletion is available once the organization is suspended — it is deliberately a second,
+            separate decision.
+          </p>
+        )}
+      </section>
+
       <Modal open={adding} onClose={() => setAdding(false)} title="Add an admin"
         description={`They will be able to administer ${org.name}.`}>
         <form onSubmit={addAdmin} className="space-y-4">
@@ -262,6 +330,50 @@ export default function OrganizationDetail() {
           <div className="flex justify-end gap-2">
             <button type="button" className="btn-ghost" onClick={() => setRenaming(false)}>Cancel</button>
             <button type="submit" className="btn-primary">Save</button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        title={`Delete ${org.name}?`}
+        description="This cannot be undone."
+      >
+        <form onSubmit={removeOrg} className="space-y-4">
+          <div className="rounded-xl border border-rose-500/25 bg-rose-500/[0.06] p-3.5">
+            <p className="text-xs leading-relaxed text-ink">
+              Everything belonging to this organization is destroyed:{' '}
+              <strong>{org.admins + org.trainers} people</strong>, <strong>{org.classes} subjects</strong>,{' '}
+              <strong>{org.batches} cohorts</strong> and{' '}
+              <strong className="tnum">{org.responses.toLocaleString()}</strong> student responses.
+            </p>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="confirm-slug">
+              Type <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-ink">{org.slug}</code> to confirm
+            </label>
+            <input
+              id="confirm-slug"
+              className="input"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              autoComplete="off"
+              placeholder={org.slug}
+            />
+            <p className="hint">Typing it back is the difference between confirming and acknowledging.</p>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-ghost" onClick={() => setDeleting(false)}>Cancel</button>
+            <button
+              type="submit"
+              className="btn-primary !bg-rose-600 hover:!bg-rose-700"
+              disabled={confirmText.trim().toLowerCase() !== org.slug}
+            >
+              Delete permanently
+            </button>
           </div>
         </form>
       </Modal>
