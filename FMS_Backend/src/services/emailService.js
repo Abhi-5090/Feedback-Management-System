@@ -84,9 +84,25 @@ export function mailStatus() {
   return { mode: 'console', configured: false };
 }
 
-export async function sendMail({ to, subject, html, text }) {
+/**
+ * The From header for one tenant.
+ *
+ * Only the display NAME is tenant-specific. The address stays the platform's,
+ * because sending as another organization's domain without their SPF and DKIM
+ * records gets the mail marked as spam — and on a shared sender that damage
+ * lands on every other tenant too, not just the one who asked for it.
+ */
+function fromHeader(fromName) {
+  if (!fromName) return env.smtp.from;
+  const address = /<([^>]+)>/.exec(env.smtp.from)?.[1] || env.smtp.from;
+  // Quotes stripped: an unescaped quote in a display name breaks the header.
+  const safe = String(fromName).replace(/["<>\r\n]/g, '').trim().slice(0, 120);
+  return safe ? `${safe} <${address}>` : env.smtp.from;
+}
+
+export async function sendMail({ to, subject, html, text, fromName }) {
   const message = {
-    from: env.smtp.from,
+    from: fromHeader(fromName),
     to,
     subject,
     text: text || stripHtml(html),
@@ -209,3 +225,13 @@ export function digestEmail({ name, period, stats, topClasses, appUrl }) {
     ),
   };
 }
+
+/**
+ * The display name to send a request's mail under.
+ *
+ * A mentor who sees their own institution's name in the inbox opens it; one
+ * who sees a product they have never heard of does not, and that is the whole
+ * difference between an invitation that lands and one that is ignored.
+ */
+export const orgFromName = (req) =>
+  req?.organization?.settings?.emailFromName || req?.organization?.name || '';

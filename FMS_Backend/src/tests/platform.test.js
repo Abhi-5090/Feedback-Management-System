@@ -454,3 +454,67 @@ describe('the platform dashboard', () => {
     expect(sep.responses).toBe(0);
   });
 });
+
+describe('quotas', () => {
+  let orgId;
+  beforeEach(async () => {
+    const res = await asSuper(request(target()).post('/api/platform/organizations')).send({
+      name: 'Capped Institute', slug: 'capped-institute',
+      adminName: 'Capped Admin', adminEmail: 'admin@capped.test',
+      adminPassword: 'Harbour-Lantern-42', requirePasswordChange: false,
+    });
+    orgId = res.body.organization.id;
+  });
+
+  test('reports usage against each ceiling', async () => {
+    const res = await asSuper(request(target()).get(`/api/platform/organizations/${orgId}`));
+    expect(res.body.quota.maxUsers).toMatchObject({
+      label: 'people', used: 1, limit: 500, unlimited: false,
+    });
+    expect(typeof res.body.quota.maxUsers.pct).toBe('number');
+    expect(res.body.quota.maxClasses.used).toBe(0);
+  });
+
+  test('refuses a creation that would cross the ceiling', async () => {
+    /* The point is not the write failing — it is an admin being told which
+       ceiling was reached, rather than a shared cluster degrading. */
+    await asSuper(request(target()).patch(`/api/platform/organizations/${orgId}`))
+      .send({ limits: { maxClasses: 1 } });
+
+    const token = await loginToken(request, 'admin@capped.test', 'Harbour-Lantern-42');
+    const first = await request(target()).post('/api/classes')
+      .set('Authorization', `Bearer ${token}`).send({ name: 'First Subject' });
+    expect(first.status).toBe(201);
+
+    const second = await request(target()).post('/api/classes')
+      .set('Authorization', `Bearer ${token}`).send({ name: 'Second Subject' });
+    expect(second.status).toBe(400);
+    expect(second.body.code).toBe('QUOTA_EXCEEDED');
+    expect(second.body.error).toMatch(/limit of 1 subjects/);
+  });
+
+  test('zero means unlimited, not zero allowed', async () => {
+    /* An institution can be let off the leash deliberately rather than by
+       editing code. */
+    await asSuper(request(target()).patch(`/api/platform/organizations/${orgId}`))
+      .send({ limits: { maxClasses: 0 } });
+
+    const token = await loginToken(request, 'admin@capped.test', 'Harbour-Lantern-42');
+    for (const name of ['A Subject', 'B Subject', 'C Subject']) {
+      const res = await request(target()).post('/api/classes')
+        .set('Authorization', `Bearer ${token}`).send({ name });
+      expect(res.status).toBe(201);
+    }
+    const detail = await asSuper(request(target()).get(`/api/platform/organizations/${orgId}`));
+    expect(detail.body.quota.maxClasses).toMatchObject({ unlimited: true, pct: null });
+  });
+
+  test("one organization's ceiling does not constrain another", async () => {
+    await asSuper(request(target()).patch(`/api/platform/organizations/${orgId}`))
+      .send({ limits: { maxClasses: 1 } });
+    // NCET is untouched and can still create freely.
+    const res = await request(target()).post('/api/classes')
+      .set('Authorization', `Bearer ${adminToken}`).send({ name: 'NCET Subject' });
+    expect(res.status).toBe(201);
+  });
+});

@@ -30,6 +30,21 @@ const userSchema = new mongoose.Schema(
        tenants themselves. admin and trainer are both members of exactly one. */
     role: { type: String, enum: ['superadmin', 'admin', 'trainer'], required: true },
     isActive: { type: Boolean, default: true },
+
+    /**
+     * Second factor.
+     *
+     * `secret` is stored because TOTP is symmetric — both sides must hold it,
+     * unlike a password, which is why it is `select: false` and never leaves
+     * the server except once, during enrolment, to be shown as a QR code.
+     *
+     * `enabledAt` rather than a boolean: knowing WHEN someone turned this on
+     * is the difference between an audit trail and a flag.
+     */
+    twoFactor: {
+      secret: { type: String, select: false, default: null },
+      enabledAt: { type: Date, default: null },
+    },
     // Set when the account was created by a bulk import with a shared default
     // password — useful for prompting a change on first login later.
     mustChangePassword: { type: Boolean, default: false },

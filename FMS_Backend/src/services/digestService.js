@@ -99,19 +99,22 @@ async function buildDigest(user, days) {
  */
 export async function runDigests({ force = false } = {}) {
   const organizations = await runUnscoped(() =>
-    Organization.find({ status: 'active', archivedAt: null }).select('_id').lean()
+    Organization.find({ status: 'active', archivedAt: null }).select('_id name settings').lean()
   );
 
   const totals = { considered: 0, sent: 0, skipped: 0, failed: 0 };
   for (const org of organizations) {
-    const one = await runWithTenant(org._id, () => runDigestsForTenant({ force }));
+    /* The organization's own name, because a digest arriving from a product
+       nobody recognises is a digest nobody opens. */
+    const fromName = org.settings?.emailFromName || org.name || '';
+    const one = await runWithTenant(org._id, () => runDigestsForTenant({ force, fromName }));
     for (const key of Object.keys(totals)) totals[key] += one[key];
   }
   return totals;
 }
 
 /** One organization's digests. Must be called inside that tenant's context. */
-async function runDigestsForTenant({ force = false } = {}) {
+async function runDigestsForTenant({ force = false, fromName = '' } = {}) {
   const recipients = await User.find({
     isActive: true,
     'digest.enabled': true,
@@ -166,7 +169,7 @@ async function runDigestsForTenant({ force = false } = {}) {
       topClasses: stats.topClasses,
       appUrl: `${env.appUrl}/${user.role === 'admin' ? 'admin' : 'trainer'}`,
     });
-    const r = await sendMail({ to: user.email, ...mail });
+    const r = await sendMail({ to: user.email, ...mail, fromName });
     // Already stamped by the claim, so a bouncing address cannot cause an
     // infinite hourly retry.
     if (r.ok) results.sent++;

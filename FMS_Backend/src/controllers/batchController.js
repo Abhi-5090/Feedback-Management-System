@@ -10,6 +10,7 @@ import { hashPasscode } from '../utils/password.js';
 import { recordAudit } from '../services/auditService.js';
 import { findRosterDrift, reattributeSession } from '../services/rosterDriftService.js';
 import { escapeRegex, shapeEntry } from '../services/analyticsService.js';
+import { assertWithinQuota } from '../services/quotaService.js';
 
 const populateClasses = [
   { path: 'classes.class', select: 'name' },
@@ -125,6 +126,8 @@ async function resolveClasses(entries) {
 
 // POST /api/batches  (admin)
 export const createBatch = asyncHandler(async (req, res) => {
+  await assertWithinQuota(req.organization?._id, 'maxBatches');
+
   const { classes, name, yearGroup, dept, expectedCount } = req.body;
   const classEntries = await resolveClasses(classes);
 

@@ -8,7 +8,7 @@ import { env, isProd } from '../config/env.js';
 import { supportsTransactions } from '../config/db.js';
 import { PASSCODE_ENTROPY_BITS } from '../utils/passcode.js';
 import { MIN_PASSWORD_LENGTH } from '../utils/password.js';
-import { sendMail, resetEmail, mailStatus } from '../services/emailService.js';
+import { sendMail, resetEmail, mailStatus, orgFromName } from '../services/emailService.js';
 import { recordAudit } from '../services/auditService.js';
 
 import {
@@ -17,6 +17,7 @@ import {
   authCookieOptions,
 } from '../utils/token.js';
 import { runUnscoped } from '../tenancy/tenantContext.js';
+import { generateSecret, verifyCode, otpauthURL, currentCode } from '../utils/totp.js';
 
 /** Reset tokens are stored hashed — the raw value only ever lives in the email. */
 const hashToken = (raw) => crypto.createHash('sha256').update(String(raw)).digest('hex');
@@ -34,6 +35,37 @@ export const login = asyncHandler(async (req, res) => {
 
   const ok = await comparePassword(password, user.passwordHash);
   if (!ok) throw unauthorized('Invalid credentials');
+
+  /* SECOND FACTOR, before any session exists.
+     
+     Returning a token and then asking for a code would mean the password
+     alone had already bought a working session — which is the thing a second
+     factor is for. The account is identified, nothing is issued, and the
+     client comes back with the code. */
+  if (user.twoFactor?.enabledAt) {
+    const withSecret = await runUnscoped(() =>
+      User.findById(user._id).select('+twoFactor.secret')
+    );
+    const code = String(req.body?.code || '').trim();
+    if (!code) {
+      return res.status(200).json({
+        twoFactorRequired: true,
+        /* Deliberately no token, no user object: until the code arrives this
+           request has proved one factor, and the response should not look
+           like a sign-in. */
+      });
+    }
+    if (!verifyCode(withSecret.twoFactor.secret, code)) {
+      recordAudit(req, {
+        action: 'auth.2fa_failed',
+        entity: 'user',
+        entityId: user._id,
+        entityName: user.name,
+        actor: user,
+      });
+      throw unauthorized('That code is not right. Codes change every 30 seconds.', 'BAD_2FA_CODE');
+    }
+  }
 
   const token = signAuthToken(user);
   res.cookie(AUTH_COOKIE, token, authCookieOptions());
@@ -164,7 +196,7 @@ export const forgotPassword = asyncHandler(async (req, res) => {
       resetUrl,
       minutes: env.resetTokenMinutes,
     });
-    await sendMail({ to: user.email, ...mail });
+    await sendMail({ to: user.email, ...mail, fromName: orgFromName(req) });
   }
 
   res.json({
@@ -309,4 +341,66 @@ export const systemStatus = asyncHandler(async (req, res) => {
         }
       : { minPasswordLength: MIN_PASSWORD_LENGTH }),
   });
+});
+
+/**
+ * POST /api/auth/2fa/start — begin enrolment.
+ *
+ * Returns a secret and the otpauth URI an authenticator app reads. It is NOT
+ * enabled yet: a secret handed out and switched on in the same step locks
+ * people out of their own accounts when the QR code does not scan, and the
+ * account that most needs a second factor is the one it is most costly to be
+ * locked out of.
+ */
+export const startTwoFactor = asyncHandler(async (req, res) => {
+  const secret = generateSecret();
+  const user = await runUnscoped(() => User.findById(req.user._id).select('+twoFactor.secret'));
+  user.twoFactor.secret = secret;
+  user.twoFactor.enabledAt = null; // not live until a code is proved
+  await user.save({ validateBeforeSave: false });
+
+  res.json({
+    secret,
+    otpauthUrl: otpauthURL({ secret, account: user.email }),
+  });
+});
+
+/** POST /api/auth/2fa/enable  { code } — prove the app works, then switch on. */
+export const enableTwoFactor = asyncHandler(async (req, res) => {
+  const user = await runUnscoped(() => User.findById(req.user._id).select('+twoFactor.secret'));
+  if (!user.twoFactor?.secret) throw badRequest('Start enrolment first', 'NO_ENROLMENT');
+  if (!verifyCode(user.twoFactor.secret, req.body?.code)) {
+    throw badRequest('That code is not right. Codes change every 30 seconds.', 'BAD_2FA_CODE');
+  }
+
+  user.twoFactor.enabledAt = new Date();
+  /* Existing sessions are revoked. Turning on a second factor is usually a
+     response to a worry about who else is signed in, and leaving those
+     sessions alive answers the worry with "not yet". */
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+  await user.save({ validateBeforeSave: false });
+
+  recordAudit(req, { action: 'auth.2fa_enabled', entity: 'user', entityId: user._id, entityName: user.name });
+  res.json({ enabled: true, enabledAt: user.twoFactor.enabledAt, token: signAuthToken(user) });
+});
+
+/** POST /api/auth/2fa/disable  { currentPassword, code } — both, deliberately. */
+export const disableTwoFactor = asyncHandler(async (req, res) => {
+  const user = await runUnscoped(() => User.findById(req.user._id).select('+passwordHash +twoFactor.secret'));
+  if (!user.twoFactor?.enabledAt) throw badRequest('Two-factor is not enabled', 'NOT_ENABLED');
+
+  /* Password AND a code. Someone sitting at an unlocked laptop has neither,
+     which is exactly the person this is defending against. */
+  const okPassword = await comparePassword(String(req.body?.currentPassword || ''), user.passwordHash);
+  if (!okPassword) throw badRequest('Current password is required', 'BAD_PASSWORD');
+  if (!verifyCode(user.twoFactor.secret, req.body?.code)) {
+    throw badRequest('That code is not right.', 'BAD_2FA_CODE');
+  }
+
+  user.twoFactor.secret = null;
+  user.twoFactor.enabledAt = null;
+  await user.save({ validateBeforeSave: false });
+
+  recordAudit(req, { action: 'auth.2fa_disabled', entity: 'user', entityId: user._id, entityName: user.name });
+  res.json({ enabled: false });
 });

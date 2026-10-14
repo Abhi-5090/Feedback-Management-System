@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import {
   login, me, logout, logoutEverywhere, updateMe, forgotPassword, resetPassword,
-  updateDigest, systemStatus,
+  updateDigest, systemStatus,  startTwoFactor,
+  enableTwoFactor,
+  disableTwoFactor,
 } from '../controllers/authController.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../utils/validate.js';
@@ -22,6 +24,11 @@ router.patch('/me', requireAuth, validate(updateMeSchema), updateMe);
 router.patch('/me/digest', requireAuth, validate(digestSchema), updateDigest);
 // Deployment facts for the Settings page (mail transport, transactions, limits).
 router.get('/system', requireAuth, systemStatus);
+
+/* Enrolment is two steps on purpose — see startTwoFactor. */
+router.post('/2fa/start', requireAuth, startTwoFactor);
+router.post('/2fa/enable', requireAuth, enableTwoFactor);
+router.post('/2fa/disable', requireAuth, disableTwoFactor);
 // Password reset. Rate-limited with the login limiter: both are unauthenticated
 // endpoints that accept an email address and must not be brute-forceable.
 router.post('/forgot-password', loginLimiter, validate(forgotPasswordSchema), forgotPassword);

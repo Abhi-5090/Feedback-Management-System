@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { recordAudit } from '../services/auditService.js';
 import { escapeRegex } from '../services/analyticsService.js';
 import { badRequest, notFound, conflict } from '../utils/ApiError.js';
+import { assertWithinQuota } from '../services/quotaService.js';
 
 /**
  * A subject's optional default mentor. Optional because staffing is a per-batch
@@ -21,6 +22,8 @@ async function assertTrainerExists(trainerId) {
 
 // POST /api/classes  (admin)
 export const createClass = asyncHandler(async (req, res) => {
+  await assertWithinQuota(req.organization?._id, 'maxClasses');
+
   const { name, description, trainer } = req.body;
   await assertTrainerExists(trainer);
 

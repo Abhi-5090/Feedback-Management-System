@@ -30,6 +30,11 @@ export const loginSchema = z.object({
   // shorter password set before the bar was raised, and rejecting it at login
   // would lock that person out of the very screen where they can change it.
   password: z.string().min(1),
+  /* The second factor, when the account has one. Optional here because
+     the first request legitimately arrives without it — the server answers
+     `twoFactorRequired` and the client comes back with the code. Zod strips
+     unknown keys, so omitting this silently discarded every code sent. */
+  code: z.string().trim().max(12).optional(),
 });
 
 export const digestSchema = z.object({
@@ -344,6 +349,15 @@ export const updateOrganizationSchema = z
           .optional(),
         displayName: z.string().max(120).optional(),
         weekStartsOn: z.enum(['monday', 'sunday']).optional(),
+      })
+      .optional(),
+    /* 0 is meaningful — it lifts the ceiling entirely — so this is a minimum
+       of zero rather than a positive number. */
+    limits: z
+      .object({
+        maxUsers: z.number().int().min(0).max(1_000_000).optional(),
+        maxClasses: z.number().int().min(0).max(100_000).optional(),
+        maxBatches: z.number().int().min(0).max(100_000).optional(),
       })
       .optional(),
   })

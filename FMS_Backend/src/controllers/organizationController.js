@@ -17,6 +17,7 @@ import {
 } from '../utils/password.js';
 import { recordAudit } from '../services/auditService.js';
 import { runWithTenant, runUnscoped } from '../tenancy/tenantContext.js';
+import { quotaUsage } from '../services/quotaService.js';
 import { DEFAULT_PARAMETERS } from '../config/defaultParameters.js';
 
 
@@ -56,6 +57,11 @@ const shape = (o, stats) => ({
   notes: o.notes || '',
   createdAt: o.createdAt,
   archivedAt: o.archivedAt || null,
+  limits: {
+    maxUsers: o.limits?.maxUsers ?? 500,
+    maxClasses: o.limits?.maxClasses ?? 200,
+    maxBatches: o.limits?.maxBatches ?? 500,
+  },
   settings: {
     timezone: o.settings?.timezone || 'Asia/Kolkata',
     displayName: o.settings?.displayName || '',
@@ -201,11 +207,14 @@ export const updateOrganization = asyncHandler(async (req, res) => {
   const org = await Organization.findById(req.params.id);
   if (!org) throw notFound('Organization not found');
 
-  const { name, status, notes, settings } = req.body;
+  const { name, status, notes, settings, limits } = req.body;
   const before = { name: org.name, status: org.status, settings: { ...org.settings } };
 
   if (name !== undefined) org.name = String(name).trim();
   if (notes !== undefined) org.notes = notes;
+  if (limits) {
+    org.limits = { ...(org.limits?.toObject?.() ?? org.limits ?? {}), ...limits };
+  }
   if (settings) {
     /* Merged, not replaced: a client sending only a timezone must not reset
        the other settings to their defaults as a side effect. */
@@ -309,7 +318,10 @@ export const getOrganization = asyncHandler(async (req, res) => {
     createdAt: u.createdAt,
   });
 
+  const quota = await runWithTenant(org._id, () => quotaUsage(org._id));
+
   res.json({
+    quota,
     organization: shape(org, {
       classes,
       batches,

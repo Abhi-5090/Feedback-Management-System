@@ -10,14 +10,17 @@ import {
   buildTrainerTemplate,
   MAX_ROWS,
 } from '../services/trainerImportService.js';
-import { sendMail, welcomeEmail, resetEmail } from '../services/emailService.js';
+import { sendMail, welcomeEmail, resetEmail, orgFromName } from '../services/emailService.js';
 import { env } from '../config/env.js';
 import { recordAudit } from '../services/auditService.js';
 import crypto from 'node:crypto';
 import { PasswordResetToken } from '../models/PasswordResetToken.js';
+import { assertWithinQuota } from '../services/quotaService.js';
 
 // POST /api/trainers  (admin)
 export const createTrainer = asyncHandler(async (req, res) => {
+  await assertWithinQuota(req.organization?._id, 'maxUsers');
+
   const { name, email, password, phone, shortName } = req.body;
   const exists = await User.findOne({ email: email.toLowerCase() });
   if (exists) throw conflict('A user with this email already exists', 'EMAIL_TAKEN');
@@ -44,7 +47,7 @@ export const createTrainer = asyncHandler(async (req, res) => {
     password,
     loginUrl: `${env.appUrl}/login`,
   });
-  const delivery = await sendMail({ to: trainer.email, ...mail });
+  const delivery = await sendMail({ to: trainer.email, ...mail, fromName: orgFromName(req) });
 
   recordAudit(req, {
     action: 'trainer.create',
@@ -139,6 +142,12 @@ export const bulkPreview = asyncHandler(async (req, res) => {
  * only the failures and re-upload instead of guessing which rows landed.
  */
 export const bulkCreateTrainers = asyncHandler(async (req, res) => {
+  /* Checked ONCE for the whole batch. Importing until the ceiling is hit
+     would leave the spreadsheet and the database disagreeing about what
+     happened, and the admin with no clean way to retry. */
+  const incoming = Array.isArray(req.body?.rows) ? req.body.rows.length : 1;
+  await assertWithinQuota(req.organization?._id, 'maxUsers', incoming);
+
   const { trainers, defaultPassword } = req.body;
 
   const created = [];
@@ -213,7 +222,7 @@ export const bulkCreateTrainers = asyncHandler(async (req, res) => {
       password: defaultPassword,
       loginUrl: `${env.appUrl}/login`,
     });
-    const r = await sendMail({ to: m.email, ...mail });
+    const r = await sendMail({ to: m.email, ...mail, fromName: orgFromName(req) });
     if (r.ok) emailed++;
   }
 
@@ -466,7 +475,7 @@ export const issueResetLink = asyncHandler(async (req, res) => {
     resetUrl: url,
     minutes: env.resetTokenMinutes,
   });
-  const delivery = await sendMail({ to: trainer.email, ...mail });
+  const delivery = await sendMail({ to: trainer.email, ...mail, fromName: orgFromName(req) });
 
   recordAudit(req, {
     action: 'trainer.reset_link',

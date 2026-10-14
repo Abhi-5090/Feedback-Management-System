@@ -63,6 +63,32 @@ const organizationSchema = new mongoose.Schema(
       /* Where a report's week starts. Changing it silently reshapes every
          weekly figure, so it is a setting rather than an assumption. */
       weekStartsOn: { type: String, enum: ['monday', 'sunday'], default: 'monday' },
+
+      /* The NAME mail appears to come from. Only the display name — the
+         address stays the platform's, because sending as someone else's
+         domain without their DNS records is how mail gets marked as spam for
+         everybody on the shared sender. A mentor who sees their own
+         institution's name opens the mail; one who sees a product they have
+         never heard of does not. */
+      emailFromName: { type: String, default: '', maxlength: 120 },
+    },
+
+    /**
+     * Ceilings on what this tenant may create.
+     *
+     * Not billing — a bound on blast radius. One organization importing a
+     * malformed spreadsheet of fifty thousand mentors degrades the database
+     * for every other organization on the same cluster, and the people who
+     * suffer are not the ones who made the mistake. A limit turns that into
+     * an error message for the person who can actually fix it.
+     *
+     * 0 means unlimited, so an institution can be let off the leash
+     * deliberately rather than by editing code.
+     */
+    limits: {
+      maxUsers: { type: Number, default: 500, min: 0 },
+      maxClasses: { type: Number, default: 200, min: 0 },
+      maxBatches: { type: Number, default: 500, min: 0 },
     },
 
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
