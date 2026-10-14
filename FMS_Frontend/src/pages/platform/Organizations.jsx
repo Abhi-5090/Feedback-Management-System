@@ -89,10 +89,10 @@ export default function Organizations() {
   return (
     <div className="space-y-6">
       <Hero
-        icon="building"
+        eyebrow="Platform"
         title="Organizations"
         subtitle="Every institution on the platform, and the admins who run them."
-        action={
+        actions={
           <button className="btn-primary" onClick={() => setCreating(true)}>
             <Icon name="plus" size={16} />
             New organization

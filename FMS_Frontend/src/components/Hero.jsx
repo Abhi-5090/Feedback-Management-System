@@ -14,7 +14,18 @@ import AnimatedNumber from './AnimatedNumber.jsx';
 const isNum = (v) => typeof v === 'number' || (typeof v === 'string' && /^\d+(\.\d+)?$/.test(v));
 const decimalsOf = (v) => (String(v).includes('.') ? String(v).split('.')[1].length : 0);
 
-export default function Hero({ eyebrow, title, subtitle, metric, metricLabel, metricSuffix, stats = [], actions }) {
+/* `action` and `actions` are both accepted, for the reason PageHeader accepts
+   both: React silently drops a prop a component does not declare, so passing
+   the singular to a component expecting the plural renders NOTHING and reports
+   nothing — the build passes, the page loads, and the button is simply absent.
+   That exact slip shipped a platform screen with no way to create an
+   organization. Taking either name removes the trap rather than documenting
+   it. */
+export default function Hero({
+  eyebrow, title, subtitle, metric, metricLabel, metricSuffix, stats = [],
+  actions, action,
+}) {
+  const headerActions = actions ?? action;
   const hasFigures = Boolean(metric) || stats.length > 0;
   return (
     /* Padding follows the content. With a metric and stats the banner needs
@@ -34,7 +45,9 @@ export default function Hero({ eyebrow, title, subtitle, metric, metricLabel, me
             <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-white/70">{subtitle}</p>
           )}
 
-          {actions && <div className="mt-5 flex flex-wrap items-center gap-2">{actions}</div>}
+          {headerActions && (
+            <div className="mt-5 flex flex-wrap items-center gap-2">{headerActions}</div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-end gap-3">

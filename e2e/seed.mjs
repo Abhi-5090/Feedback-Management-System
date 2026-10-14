@@ -18,6 +18,7 @@ import {
 } from '../FMS_Backend/src/tenancy/tenantContext.js';
 
 export const ADMIN = { email: 'e2e-admin@test.local', password: 'e2e-admin-pass-2026' };
+export const SUPER = { email: 'e2e-root@test.local', password: 'e2e-root-pass-2026' };
 export const PARAMETERS = ['Content clarity', 'Pace of the session', 'Overall experience'];
 
 export async function seedE2E() {
@@ -65,6 +66,19 @@ export async function seedE2E() {
     mustChangePassword: false,
   });
 
+  /* The platform account. It belongs to NO organization — that is what makes
+     it a super admin rather than a very powerful member of one — so it is
+     saved with validation off, the same way the migration creates it. */
+  const root = new User({
+    name: 'E2E Root',
+    email: SUPER.email,
+    passwordHash: await hashPassword(SUPER.password),
+    role: 'superadmin',
+    organization: null,
+    mustChangePassword: false,
+  });
+  await runUnscoped(() => root.save({ validateBeforeSave: false }));
+
   const genai = await Class.create({ name: 'GenAI', trainer: null });
   const coding = await Class.create({ name: 'Coding', trainer: null });
 
@@ -83,6 +97,8 @@ export async function seedE2E() {
   });
 
   return {
+    organizationId: String(org._id),
+    rootId: String(root._id),
     adminId: String(admin._id),
     batchId: String(batch._id),
     batchName: batch.name,
