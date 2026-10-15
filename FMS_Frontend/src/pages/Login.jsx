@@ -12,6 +12,14 @@ import Icon from '../components/Icon.jsx';
 const homeFor = (role) =>
   role === 'superadmin' ? '/platform' : role === 'admin' ? '/admin' : '/trainer';
 
+/* Several memberships means there is a choice to make, and no safe default:
+   opening into whichever sorted first would put one institution's figures on
+   screen under a heading that does not name it. */
+const landingFor = (u) =>
+  u?.role !== 'superadmin' && (u?.memberships?.length || 0) > 1
+    ? '/choose-organization'
+    : homeFor(u?.role);
+
 export default function Login() {
   const { user, login, loading } = useAuth();
   const { theme, toggle } = useTheme();
@@ -25,7 +33,7 @@ export default function Login() {
 
   // If already authenticated, bounce to the right home.
   useEffect(() => {
-    if (!loading && user) navigate(homeFor(user.role), { replace: true });
+    if (!loading && user) navigate(landingFor(user), { replace: true });
   }, [user, loading, navigate]);
 
   const submit = async (e) => {
@@ -35,7 +43,7 @@ export default function Login() {
     try {
       const u = await login(email.trim(), password);
       toast.success(`Welcome back, ${u.name}`);
-      navigate(homeFor(u.role), { replace: true });
+      navigate(landingFor(u), { replace: true });
     } catch (err) {
       toast.error(err.message || 'Login failed');
       setPassword('');

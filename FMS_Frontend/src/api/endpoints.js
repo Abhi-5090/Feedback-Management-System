@@ -2,6 +2,9 @@ import { api } from './client.js';
 
 // A thin, typed-ish wrapper over every backend endpoint the UI uses.
 export const AuthAPI = {
+  /* Reachable before an organization is chosen — it is the call that says
+     what there is to choose from. */
+  organizations: () => api.get('/auth/organizations').then((r) => r.data),
   login: (email, password) => api.post('/auth/login', { email, password }).then((r) => r.data),
   me: () => api.get('/auth/me').then((r) => r.data),
   updateMe: (body) => api.patch('/auth/me', body).then((r) => r.data),

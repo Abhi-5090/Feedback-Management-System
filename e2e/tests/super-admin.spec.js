@@ -34,16 +34,16 @@ test.describe('super admin', () => {
     await page.getByRole('button', { name: /new organization/i }).click();
 
     const dialog = page.getByRole('dialog');
-    await dialog.locator('#org-name').fill('Second Institute');
-    await dialog.locator('#admin-name').fill('Second Admin');
-    await dialog.locator('#admin-email').fill('second-admin@test.local');
+    await dialog.locator('#org-name').fill('Created Institute');
+    await dialog.locator('#admin-name').fill('Created Admin');
+    await dialog.locator('#admin-email').fill('created-admin@test.local');
     await dialog.locator('#new-org-password').fill('Harbour-Lantern-42');
     await dialog.getByRole('button', { name: /create organization/i }).click();
 
     // The confirmation, then the row in the list.
     await expect(page.getByText(/organization created/i)).toBeVisible();
     await page.getByRole('button', { name: /^done$/i }).click();
-    await expect(page.getByText('Second Institute')).toBeVisible();
+    await expect(page.getByText('Created Institute')).toBeVisible();
   });
 
   test('the new admin can sign in and reach their own workspace', async ({ page }) => {

@@ -10,6 +10,7 @@ import { Class } from '../FMS_Backend/src/models/Class.js';
 import { Batch } from '../FMS_Backend/src/models/Batch.js';
 import { Parameter } from '../FMS_Backend/src/models/Parameter.js';
 import { Phase } from '../FMS_Backend/src/models/Phase.js';
+import { Membership } from '../FMS_Backend/src/models/Membership.js';
 import { hashPassword } from '../FMS_Backend/src/utils/password.js';
 import { Organization } from '../FMS_Backend/src/models/Organization.js';
 import {
@@ -19,6 +20,9 @@ import {
 
 export const ADMIN = { email: 'e2e-admin@test.local', password: 'e2e-admin-pass-2026' };
 export const SUPER = { email: 'e2e-root@test.local', password: 'e2e-root-pass-2026' };
+/* Teaches at BOTH institutions — the case the whole membership model exists
+   for, and the one no single-organization fixture can exercise. */
+export const SHARED = { email: 'e2e-shared@test.local', password: 'e2e-shared-pass-2026' };
 export const PARAMETERS = ['Content clarity', 'Pace of the session', 'Overall experience'];
 
 export async function seedE2E() {
@@ -27,8 +31,12 @@ export async function seedE2E() {
      deletes, which are themselves scoped queries. Seeding outside a tenant
      throws rather than quietly writing rows nobody could ever read. */
   await runUnscoped(() => Organization.deleteMany({}));
+  await runUnscoped(() => Membership.deleteMany({}));
   const org = await runUnscoped(() =>
     Organization.create({ name: 'E2E Institute', slug: 'e2e-institute' })
+  );
+  const second = await runUnscoped(() =>
+    Organization.create({ name: 'Second Institute', slug: 'e2e-second' })
   );
   setAmbientTenant({ organization: org._id });
 
@@ -79,6 +87,25 @@ export async function seedE2E() {
   });
   await runUnscoped(() => root.save({ validateBeforeSave: false }));
 
+  /* Everyone who signs in needs a membership — it is what lets them in. */
+  await Membership.create({ user: admin._id, role: 'admin' });
+  await Membership.create({ user: mentor._id, role: 'trainer' });
+
+  const shared = await User.create({
+    name: 'Shared Mentor',
+    email: SHARED.email,
+    passwordHash: await hashPassword(SHARED.password),
+    role: 'trainer',
+    mustChangePassword: false,
+  });
+  await Membership.create({ user: shared._id, role: 'trainer' });
+  await runUnscoped(() =>
+    Membership.create({ user: shared._id, organization: second._id, role: 'trainer' })
+  );
+  await runUnscoped(() =>
+    User.updateOne({ _id: shared._id }, { $addToSet: { organization: second._id } })
+  );
+
   const genai = await Class.create({ name: 'GenAI', trainer: null });
   const coding = await Class.create({ name: 'Coding', trainer: null });
 
@@ -98,6 +125,8 @@ export async function seedE2E() {
 
   return {
     organizationId: String(org._id),
+    secondOrganizationId: String(second._id),
+    sharedId: String(shared._id),
     rootId: String(root._id),
     adminId: String(admin._id),
     batchId: String(batch._id),

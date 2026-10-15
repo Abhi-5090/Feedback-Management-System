@@ -29,6 +29,13 @@ export function OrgScopeProvider({ children }) {
   const locked = Boolean(user?.mustChangePassword);
   const isSuper = user?.role === 'superadmin' && !locked;
 
+  /* MEMBERS CARRY THE HEADER TOO, now that one person can work at several
+     institutions. It is not a privilege — the server checks it against their
+     memberships and refuses any organization they are not in — it is simply
+     how a request says which of your own places you are in right now. */
+  const memberships = locked ? [] : user?.memberships || [];
+  const needsChoice = !isSuper && memberships.length > 1;
+
   const [organizations, setOrganizations] = useState([]);
   const [orgId, setOrgId] = useState(() => {
     try {
@@ -44,12 +51,22 @@ export function OrgScopeProvider({ children }) {
      super admin means the platform-wide view rather than the organization
      they chose — wrong, and quietly so. */
   useEffect(() => {
-    setOrganizationHeader(isSuper ? orgId : undefined);
-  }, [isSuper, orgId]);
+    /* Sent whenever there is a choice to express: a super admin viewing a
+       tenant, or a member who works at more than one. Somebody with a single
+       membership sends nothing and the server uses the only one they have. */
+    setOrganizationHeader(isSuper || needsChoice ? orgId : undefined);
+  }, [isSuper, needsChoice, orgId]);
 
   useEffect(() => {
-    if (!isSuper) {
+    if (!isSuper && !needsChoice) {
       setOrganizations([]);
+      setLoaded(true);
+      return undefined;
+    }
+    if (!isSuper) {
+      /* A member's list is their memberships, which arrived with the account —
+         no second request, and nothing they are not in. */
+      setOrganizations(memberships);
       setLoaded(true);
       return undefined;
     }
@@ -70,9 +87,12 @@ export function OrgScopeProvider({ children }) {
      would leave every request pointed at nothing. Fall back to the platform
      view rather than leaving them stuck on an error. */
   useEffect(() => {
-    if (!isSuper || !loaded || !orgId) return;
+    if (!loaded || !orgId || (!isSuper && !needsChoice)) return;
+    /* A stored organization they have been removed from would point every
+       request at somewhere they cannot go. Clearing it sends them back to the
+       picker rather than leaving them stuck on a refusal. */
     if (!organizations.some((o) => o.id === orgId)) setOrgId('');
-  }, [isSuper, loaded, orgId, organizations]);
+  }, [isSuper, needsChoice, loaded, orgId, organizations]);
 
   const setOrg = useCallback((next) => {
     const value = next || '';
@@ -92,11 +112,14 @@ export function OrgScopeProvider({ children }) {
       setOrg,
       organizations,
       loaded,
+      needsChoice,
       current: organizations.find((o) => o.id === orgId) || null,
       /* True when a super admin has not picked one: the platform-wide view. */
       isPlatformView: isSuper && !orgId,
+      /* A member who must choose and has not yet. */
+      awaitingChoice: needsChoice && !orgId,
     }),
-    [isSuper, orgId, setOrg, organizations, loaded]
+    [isSuper, needsChoice, orgId, setOrg, organizations, loaded]
   );
 
   return <OrgScopeContext.Provider value={value}>{children}</OrgScopeContext.Provider>;
@@ -108,6 +131,7 @@ export function useOrgScope() {
     useContext(OrgScopeContext) || {
       isSuper: false, orgId: '', setOrg: () => {}, organizations: [],
       loaded: true, current: null, isPlatformView: false,
+      needsChoice: false, awaitingChoice: false,
     }
   );
 }

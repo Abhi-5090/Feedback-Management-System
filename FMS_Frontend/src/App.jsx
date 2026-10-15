@@ -35,6 +35,7 @@ const AdminBatchFeedback = lazy(() => import('./pages/admin/BatchFeedback.jsx'))
 const TrainerLayout = lazy(() => import('./layouts/TrainerLayout.jsx'));
 const PlatformLayout = lazy(() => import('./layouts/PlatformLayout.jsx'));
 const Organizations = lazy(() => import('./pages/platform/Organizations.jsx'));
+const ChooseOrganization = lazy(() => import('./platform/ChooseOrganization.jsx'));
 const OrganizationDetail = lazy(() => import('./pages/platform/OrganizationDetail.jsx'));
 const TrainerDashboard = lazy(() => import('./pages/trainer/Dashboard.jsx'));
 const TrainerClassFeedback = lazy(() => import('./pages/trainer/ClassFeedback.jsx'));
@@ -64,6 +65,19 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+
+        {/* Where somebody who works at several institutions lands. Outside
+            the role-guarded areas on purpose: it is what they see BEFORE an
+            organization has been chosen, so it cannot sit behind a guard that
+            needs one. */}
+        <Route
+          path="/choose-organization"
+          element={
+            <ProtectedRoute>
+              <ChooseOrganization />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Anonymous student feedback — entered via a per-batch link */}
         <Route path="/feedback/:batchId" element={<StudentFlow />} />

@@ -133,6 +133,17 @@ api.interceptors.response.use(
     if (data?.code === 'PASSWORD_CHANGE_REQUIRED' && shouldReloadForPasswordChange()) {
       window.location.reload();
     }
+
+    /* The account works; it just has not said which institution it is in.
+       Sending them to the picker turns a dead screen full of failed requests
+       into the one question that unblocks it. Guarded against looping on the
+       picker itself, which is allowed to make this very request. */
+    if (
+      data?.code === 'ORGANIZATION_CHOICE_REQUIRED' &&
+      !window.location.pathname.startsWith('/choose-organization')
+    ) {
+      window.location.assign('/choose-organization');
+    }
     return Promise.reject(error);
   }
 );

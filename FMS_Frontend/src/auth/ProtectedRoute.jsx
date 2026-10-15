@@ -13,7 +13,7 @@ const home = (role) =>
   role === 'superadmin' ? '/platform' : role === 'admin' ? '/admin' : '/trainer';
 
 export default function ProtectedRoute({ role, children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, membershipRole } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -35,8 +35,12 @@ export default function ProtectedRoute({ role, children }) {
      guard, and the server still decides what they can see from the
      organization header. */
   const allowed = role === 'admin' ? ['admin', 'superadmin'] : [role];
-  if (role && !allowed.includes(user.role)) {
-    return <Navigate to={home(user.role)} replace />;
+  /* The role that counts is the one for the organization they are IN, not the
+     one on their account: a mentor at one institution may administer another.
+     The server decides this; the client only mirrors it. */
+  const effective = membershipRole || user.role;
+  if (role && !allowed.includes(effective) && !allowed.includes(user.role)) {
+    return <Navigate to={home(effective)} replace />;
   }
   return children;
 }
