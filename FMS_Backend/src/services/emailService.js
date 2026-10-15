@@ -235,3 +235,28 @@ export function digestEmail({ name, period, stats, topClasses, appUrl }) {
  */
 export const orgFromName = (req) =>
   req?.organization?.settings?.emailFromName || req?.organization?.name || '';
+
+/**
+ * Somebody who already has an account has been added to another institution.
+ *
+ * Deliberately NOT the welcome email. That one carries a password, and this
+ * person already has one — sending them a new credential for an account they
+ * already use is both confusing and a reason to reset something that did not
+ * need resetting. What they need to know is that a second place now appears
+ * when they sign in.
+ */
+export function addedToOrganizationEmail({ name, organizationName, loginUrl }) {
+  return {
+    subject: `You have been added to ${organizationName}`,
+    html: shell(
+      `Hello, ${name}`,
+      `<p>You have been added to <strong>${organizationName}</strong> on ${env.appName}.</p>
+       <p>Sign in with the password you already use. You will be asked which
+          institution you want to work in.</p>
+       <p style="margin:22px 0"><a href="${loginUrl}"
+          style="background:#ea5829;color:#fff;padding:11px 18px;border-radius:999px;
+                 text-decoration:none;font-weight:600;display:inline-block">Sign in</a></p>
+       <p style="color:#6b7280;font-size:13px">Your existing password has not changed.</p>`
+    ),
+  };
+}

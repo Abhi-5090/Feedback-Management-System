@@ -11,7 +11,7 @@ import {
   buildTrainerTemplate,
   MAX_ROWS,
 } from '../services/trainerImportService.js';
-import { sendMail, welcomeEmail, resetEmail, orgFromName } from '../services/emailService.js';
+import { sendMail, welcomeEmail, addedToOrganizationEmail, resetEmail, orgFromName } from '../services/emailService.js';
 import { env } from '../config/env.js';
 import { recordAudit } from '../services/auditService.js';
 import crypto from 'node:crypto';
@@ -24,8 +24,68 @@ export const createTrainer = asyncHandler(async (req, res) => {
   await assertWithinQuota(req.organization?._id, 'maxUsers');
 
   const { name, email, password, phone, shortName } = req.body;
-  const exists = await User.findOne({ email: email.toLowerCase() });
-  if (exists) throw conflict('A user with this email already exists', 'EMAIL_TAKEN');
+  const clean = email.toLowerCase();
+
+  /* LOOKED UP ACROSS THE WHOLE PRODUCT, not just this organization.
+     
+     Scoped, this found nobody when the person already taught somewhere else —
+     and the create that followed hit the global unique index on email and
+     came back as "Duplicate entry", which tells an admin nothing about what
+     to do. One person teaching at two colleges is the case the membership
+     model exists for; it should be the easy path, not an error.
+     
+     It does mean an admin can learn that an address is already registered.
+     That is the same trade every product with invitations makes, it is an
+     authenticated action by someone who can already see their own staff, and
+     it is audited — against a feature that is otherwise unusable. */
+  const existing = await runUnscoped(() => User.findOne({ email: clean }));
+
+  if (existing) {
+    if (existing.role === 'superadmin') {
+      throw conflict('That address belongs to a platform account.', 'EMAIL_TAKEN');
+    }
+
+    const already = await Membership.findOne({ user: existing._id });
+    if (already) {
+      throw conflict(`${existing.name} is already in this organization.`, 'ALREADY_A_MEMBER');
+    }
+
+    await Membership.create({ user: existing._id, role: 'trainer', invitedBy: req.user?._id });
+    /* The tenant filter matches on this array, so the organization has to be
+       added to it or the new member stays invisible to every scoped query. */
+    await runUnscoped(() =>
+      User.updateOne({ _id: existing._id }, { $addToSet: { organization: req.organization._id } })
+    );
+
+    recordAudit(req, {
+      action: 'trainer.add_existing',
+      entity: 'user',
+      entityId: existing._id,
+      entityName: existing.name,
+      meta: { email: clean },
+    });
+
+    /* Not the welcome email: that one carries a password, and they already
+       have one they use elsewhere. */
+    const mail = addedToOrganizationEmail({
+      name: existing.name,
+      organizationName: req.organization?.name || 'your institution',
+      loginUrl: `${env.appUrl}/login`,
+    });
+    await sendMail({ to: existing.email, ...mail, fromName: orgFromName(req) });
+
+    return res.status(201).json({
+      trainer: {
+        id: String(existing._id),
+        name: existing.name,
+        email: existing.email,
+        shortName: existing.shortName || '',
+      },
+      /* Says plainly that no new account was made and no password was set, so
+         the admin does not go looking for one to pass on. */
+      addedExisting: true,
+    });
+  }
 
   const trainer = await User.create({
     name,

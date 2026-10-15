@@ -107,8 +107,15 @@ export default function Trainers() {
     setBusy(true);
     try {
       if (modal === 'create') {
-        await TrainersAPI.create(form);
-        toast.success('mentor created');
+        const res = await TrainersAPI.create(form);
+        /* Somebody who already teaches elsewhere keeps their account and
+           their password. Saying so stops an admin looking for a credential
+           to pass on that was never issued. */
+        toast.success(
+          res?.addedExisting
+            ? `${res.trainer.name} already had an account — added to this organization. They sign in with their existing password.`
+            : 'mentor created'
+        );
       } else {
         const patch = {
           name: form.name,
@@ -428,6 +435,15 @@ export default function Trainers() {
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               placeholder="jane@example.com"
             />
+            {/* Only when adding. On an edit it would be answering a question
+                nobody asked. */}
+            {modal === 'create' && (
+              <p className="hint">
+                Already teaches at another institution on this platform? Use the same address —
+                they keep one account and one password, and this organization simply appears
+                alongside the other when they sign in.
+              </p>
+            )}
             <p className="hint">Used as their sign-in ID — it must be unique.</p>
           </div>
           {/* The board label. This — not the account's full name — is what the
