@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { User } from '../models/User.js';
+import { Organization } from '../models/Organization.js';
 import { PasswordResetToken } from '../models/PasswordResetToken.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { comparePassword, hashPassword, validatePasswordStrength } from '../utils/password.js';
@@ -18,6 +19,7 @@ import {
 } from '../utils/token.js';
 import { runUnscoped } from '../tenancy/tenantContext.js';
 import { generateSecret, verifyCode, otpauthURL, currentCode } from '../utils/totp.js';
+import { membershipsFor } from '../services/membershipService.js';
 
 /** Reset tokens are stored hashed — the raw value only ever lives in the email. */
 const hashToken = (raw) => crypto.createHash('sha256').update(String(raw)).digest('hex');
@@ -94,7 +96,19 @@ export const me = asyncHandler(async (req, res) => {
         },
       }
     : null;
-  res.json({ user: req.user, organization });
+  /* The memberships ride along so the client can show the organization cards
+     without a second request — and so a mentor who works at one institution
+     never sees a picker at all. */
+  const memberships = req.user.role === 'superadmin' ? [] : await membershipsFor(req.user._id);
+
+  res.json({
+    user: req.user,
+    organization,
+    memberships,
+    /* What they may do HERE. The client hides what this forbids; the server
+       refuses it regardless. */
+    role: req.membershipRole || req.user.role,
+  });
 });
 
 /**
@@ -403,4 +417,31 @@ export const disableTwoFactor = asyncHandler(async (req, res) => {
 
   recordAudit(req, { action: 'auth.2fa_disabled', entity: 'user', entityId: user._id, entityName: user.name });
   res.json({ enabled: false });
+});
+
+/**
+ * GET /api/auth/organizations — the places this person works.
+ *
+ * Reachable WITHOUT having chosen one, which is the point: it is the call
+ * that tells somebody what they may choose from. Everything else refuses
+ * until a choice is made, so without this the multi-organization case would
+ * be a locked door with the key behind it.
+ */
+export const myOrganizations = asyncHandler(async (req, res) => {
+  if (req.user.role === 'superadmin') {
+    const orgs = await runUnscoped(() =>
+      Organization.find({ archivedAt: null }).select('name slug status settings').sort({ name: 1 }).lean()
+    );
+    return res.json({
+      organizations: orgs.map((o) => ({
+        id: String(o._id),
+        name: o.name,
+        slug: o.slug,
+        status: o.status,
+        role: 'admin',
+        timezone: o.settings?.timezone || 'Asia/Kolkata',
+      })),
+    });
+  }
+  res.json({ organizations: await membershipsFor(req.user._id) });
 });

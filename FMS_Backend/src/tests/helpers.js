@@ -19,6 +19,7 @@ import { hashPassword } from '../utils/password.js';
 import { bustParameterCache } from '../services/parameterCache.js';
 import { Organization } from '../models/Organization.js';
 import { setAmbientTenant, clearAmbientTenant, runUnscoped } from '../tenancy/tenantContext.js';
+import { Membership } from '../models/Membership.js';
 
 let replset;
 
@@ -146,6 +147,10 @@ export async function seedBasics({ orgName = 'Test Institute', slug = 'test-inst
     passwordHash: await hashPassword(ADMIN_PASSWORD),
     role: 'admin',
   });
+  /* Where someone works is a Membership row now, not a field on the user —
+     so a fixture that skips it creates an account that cannot sign in
+     anywhere, which is exactly what the product does. */
+  await Membership.create({ user: admin._id, role: 'admin' });
   return { admin };
 }
 
@@ -167,13 +172,18 @@ export async function makeOrganization({ name = 'Other Institute', slug = 'other
 }
 
 export async function makeTrainer(email = 'trainer@test.com', name) {
-  return User.create({
+  const user = await User.create({
     name: name || `Trainer ${email}`,
     shortName: (name || email).split(/[\s@]/)[0],
     email,
     passwordHash: await hashPassword(TRAINER_PASSWORD),
     role: 'trainer',
   });
+  /* Where someone works is a Membership row now, not a field on the user, so
+     a fixture that skips it creates an account that cannot sign in anywhere —
+     which is exactly what the product does. */
+  await Membership.create({ user: user._id, role: 'trainer' });
+  return user;
 }
 
 /**

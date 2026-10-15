@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { Organization } from '../models/Organization.js';
 import { User } from '../models/User.js';
+import { Membership } from '../models/Membership.js';
 import { Batch } from '../models/Batch.js';
 import { Class } from '../models/Class.js';
 import { Feedback } from '../models/Feedback.js';
@@ -161,6 +162,10 @@ export const createOrganization = asyncHandler(async (req, res) => {
         role: 'admin',
         mustChangePassword: requirePasswordChange !== false,
       });
+      /* The membership is what actually lets them in. Creating the account
+         without one makes a person who exists and belongs nowhere — able to
+         sign in and reach nothing, with no error that explains why. */
+      await Membership.create({ user: created._id, role: 'admin', invitedBy: req.user?._id });
       // Seed the feedback parameters, or the student form has nothing to ask.
       await Parameter.insertMany(DEFAULT_PARAMETERS.map((label, i) => ({ label, order: i })));
       return created;
@@ -262,6 +267,9 @@ export const addOrganizationAdmin = asyncHandler(async (req, res) => {
       passwordHash: await hashPassword(plain),
       role: 'admin',
       mustChangePassword: req.body.requirePasswordChange !== false,
+    }).then(async (created) => {
+      await Membership.create({ user: created._id, role: 'admin', invitedBy: req.user?._id });
+      return created;
     })
   );
 

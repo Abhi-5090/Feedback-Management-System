@@ -13,6 +13,7 @@ import { hashPassword, generateStrongPassword } from './utils/password.js';
 import { isMain } from './utils/isMain.js';
 import { DEFAULT_PARAMETERS } from './config/defaultParameters.js';
 import { Organization } from './models/Organization.js';
+import { Membership } from './models/Membership.js';
 import { runUnscoped, setAmbientTenant } from './tenancy/tenantContext.js';
 
 
@@ -30,6 +31,7 @@ async function seedAdmin() {
     passwordHash: await hashPassword(password),
     role: 'admin',
   });
+    await Membership.create({ user: admin._id, role: 'admin' });
   console.log(`[seed] created admin: ${email}`);
   return { email, password };
 }

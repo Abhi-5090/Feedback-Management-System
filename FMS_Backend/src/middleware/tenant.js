@@ -3,6 +3,7 @@ import { Organization } from '../models/Organization.js';
 import { Batch } from '../models/Batch.js';
 import { enterTenant, enterUnscoped, runUnscoped } from '../tenancy/tenantContext.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { membershipsFor } from '../services/membershipService.js';
 import { forbidden, badRequest, notFound } from '../utils/ApiError.js';
 
 /**
@@ -39,34 +40,75 @@ export async function resolveTenantFor(req) {
   const user = req.user;
   if (!user) throw forbidden('Authentication required');
 
-  if (user.role !== 'superadmin') {
-    if (!user.organization) {
-      /* A member with no organization cannot be scoped to anything, and
-         running them unscoped would hand them the platform. Refuse. */
-      throw forbidden('Your account is not attached to an organization.', 'NO_ORGANIZATION');
+  if (user.role === 'superadmin') {
+    /* A super admin belongs to no organization and names one per request.
+       Nothing until they do, which is what lets the platform views see
+       across tenants. */
+    const raw = req.headers['x-organization'] || req.query.org;
+    if (!raw || raw === 'all') {
+      req.organization = null;
+      req.membershipRole = null;
+      return null;
     }
-    const org = await runUnscoped(() => Organization.findById(user.organization));
-    if (!org || !org.isUsable()) {
-      throw forbidden('This organization is suspended or no longer available.', 'ORG_UNAVAILABLE');
+    if (!mongoose.Types.ObjectId.isValid(String(raw))) {
+      throw badRequest(`"${raw}" is not a valid organization id`, 'BAD_ORGANIZATION');
     }
+    const org = await runUnscoped(() => Organization.findById(raw));
+    if (!org) throw notFound('Organization not found');
     req.organization = org;
+    /* Acting as an administrator of whichever tenant they opened, without a
+       membership row — the platform role is what grants it. */
+    req.membershipRole = 'admin';
     return org;
   }
 
-  /* Super admin. The organization picker sends its choice; "all" (or nothing)
-     means the cross-organization view. */
-  const raw = req.headers['x-organization'] || req.query.org;
-  if (!raw || raw === 'all') {
+  /* A MEMBER NAMES THEIR ORGANIZATION TOO, now that one person can be in
+     several. The header is a request from the client and is therefore
+     checked against their memberships rather than trusted: naming an
+     organization you do not belong to must fail, not succeed quietly. */
+  const memberships = await membershipsFor(user._id);
+  if (!memberships.length) {
+    throw forbidden('Your account is not attached to an organization.', 'NO_ORGANIZATION');
+  }
+
+  const asked = String(req.headers['x-organization'] || req.query.org || '').trim();
+  let chosen;
+  if (asked && asked !== 'all') {
+    chosen = memberships.find((m) => m.id === asked);
+    if (!chosen) {
+      /* Deliberately the same answer as "no such organization". Telling
+         somebody that an id is real but not theirs confirms its existence to
+         an account with no business knowing. */
+      throw forbidden('You are not a member of that organization.', 'NOT_A_MEMBER');
+    }
+  } else if (memberships.length === 1) {
+    /* One membership needs no choosing. Making the single-organization case
+       pick from a list of one would be ceremony for the overwhelming
+       majority of people. */
+    [chosen] = memberships;
+  } else {
+    /* Several, and none named. There is no safe default — picking one would
+       show figures from an institution they did not ask about, under a
+       heading that does not say so. The client sends them to the picker. */
     req.organization = null;
-    return null;
+    req.membershipRole = null;
+    req.memberships = memberships;
+    throw badRequest(
+      'Choose which organization you are working in.',
+      'ORGANIZATION_CHOICE_REQUIRED'
+    );
   }
-  if (!mongoose.Types.ObjectId.isValid(String(raw))) {
-    throw badRequest(`"${raw}" is not a valid organization id`, 'BAD_ORGANIZATION');
+
+  const org = await runUnscoped(() => Organization.findById(chosen.id));
+  if (!org || !org.isUsable()) {
+    throw forbidden('This organization is suspended or no longer available.', 'ORG_UNAVAILABLE');
   }
-  const org = await runUnscoped(() => Organization.findById(raw));
-  if (!org) throw notFound('Organization not found');
 
   req.organization = org;
+  /* Authoritative for permissions. Never user.role: somebody who administers
+     one institution has no standing in another unless a membership says so. */
+  req.membershipRole = chosen.role;
+  req.memberships = memberships;
   return org;
 }
 

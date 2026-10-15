@@ -85,6 +85,19 @@ userSchema.methods.toJSON = function toJSON() {
   return obj;
 };
 
-userSchema.plugin(tenantPlugin, { required: false });
+/**
+ * A person can work at several institutions, so their tenancy is a LIST.
+ *
+ * The field keeps the singular name because every scoped query in the product
+ * filters `{ organization: <current> }`, and MongoDB matches that against the
+ * elements of an array — so those queries stay correct without being edited,
+ * which is the only safe way to change this on a system already holding real
+ * data.
+ *
+ * It says WHERE someone works. What they may DO there is on Membership: a
+ * person can run one institution and merely teach at another, and a single
+ * global role gets that wrong in both places.
+ */
+userSchema.plugin(tenantPlugin, { required: false, multi: true });
 
 export const User = mongoose.model('User', userSchema);

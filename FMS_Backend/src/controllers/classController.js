@@ -1,4 +1,5 @@
 import { Class } from '../models/Class.js';
+import { Feedback } from '../models/Feedback.js';
 import { User } from '../models/User.js';
 import { Batch } from '../models/Batch.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -219,4 +220,46 @@ export const archiveClass = asyncHandler(async (req, res) => {
   });
 
   res.json({ class: klass });
+});
+
+/**
+ * DELETE /api/v1/classes/:id
+ *
+ * Permanent removal, and only when nothing depends on it.
+ *
+ * ARCHIVING IS THE USUAL ANSWER and stays the default: a subject that has
+ * been taught has feedback attached, and deleting it would orphan responses
+ * students gave in good faith. This exists for the other case — a subject
+ * created by mistake, with nothing behind it — where archiving leaves a
+ * permanent monument to a typo.
+ *
+ * So the refusal names what is in the way rather than saying no: an admin who
+ * is told "3 cohorts use this" knows exactly what to do next.
+ */
+export const deleteClass = asyncHandler(async (req, res) => {
+  const klass = await Class.findById(req.params.id);
+  if (!klass) throw notFound('Subject not found');
+
+  const [batches, responses] = await Promise.all([
+    Batch.countDocuments({ 'classes.class': klass._id }),
+    Feedback.countDocuments({ class: klass._id }),
+  ]);
+
+  if (batches > 0 || responses > 0) {
+    throw badRequest(
+      `"${klass.name}" is used by ${batches} cohort${batches === 1 ? '' : 's'} and holds ` +
+        `${responses} response${responses === 1 ? '' : 's'}. Archive it instead — deleting it ` +
+        'would discard feedback students have already given.',
+      'IN_USE'
+    );
+  }
+
+  await Class.deleteOne({ _id: klass._id });
+  recordAudit(req, {
+    action: 'class.delete',
+    entity: 'class',
+    entityId: klass._id,
+    entityName: klass.name,
+  });
+  res.json({ deleted: true });
 });

@@ -23,6 +23,7 @@ import {
 import { Class } from '../models/Class.js';
 import { Feedback } from '../models/Feedback.js';
 import { User } from '../models/User.js';
+import { Membership } from '../models/Membership.js';
 import { Organization } from '../models/Organization.js';
 import { hashPassword } from '../utils/password.js';
 import {
@@ -74,12 +75,13 @@ beforeEach(async () => {
   // A second institution, with its own admin, its own subject, its own data.
   other = await makeOrganization({ name: 'Other Institute', slug: 'other-institute' });
   await other.run(async () => {
-    await User.create({
+    const otherAdmin = await User.create({
       name: 'Other Admin',
       email: 'admin@other.test',
       passwordHash: await hashPassword(ADMIN_PASSWORD),
       role: 'admin',
     });
+    await Membership.create({ user: otherAdmin._id, role: 'admin' });
     await Class.create({ name: 'Other Subject' });
   });
   otherAdminToken = await loginToken(request, 'admin@other.test', ADMIN_PASSWORD);

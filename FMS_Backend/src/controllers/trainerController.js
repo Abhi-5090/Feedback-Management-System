@@ -1,4 +1,5 @@
 import { User } from '../models/User.js';
+import { Membership } from '../models/Membership.js';
 import { Class } from '../models/Class.js';
 import { Batch } from '../models/Batch.js';
 import { escapeRegex } from '../services/analyticsService.js';
@@ -16,6 +17,7 @@ import { recordAudit } from '../services/auditService.js';
 import crypto from 'node:crypto';
 import { PasswordResetToken } from '../models/PasswordResetToken.js';
 import { assertWithinQuota } from '../services/quotaService.js';
+import { runUnscoped } from '../tenancy/tenantContext.js';
 
 // POST /api/trainers  (admin)
 export const createTrainer = asyncHandler(async (req, res) => {
@@ -39,6 +41,7 @@ export const createTrainer = asyncHandler(async (req, res) => {
     // held at the change-password gate until they pick their own.
     mustChangePassword: true,
   });
+  await Membership.create({ user: trainer._id, role: 'trainer', invitedBy: req.user?._id });
 
   // Fire-and-forget: a mail failure must not undo a created account.
   const mail = welcomeEmail({
@@ -187,16 +190,10 @@ export const bulkCreateTrainers = asyncHandler(async (req, res) => {
     }
 
     try {
-      await User.create({
-        name,
-        firstName,
-        lastName,
-        email,
-        phone: (t.phone || '').trim(),
-        passwordHash,
-        role: 'trainer',
-        mustChangePassword: true,
-      });
+      const createdUser = await User.findOne({ email: row.email });
+      if (createdUser) {
+        await Membership.create({ user: createdUser._id, role: 'trainer', invitedBy: req.user?._id });
+      }
       created.push({ row, name, email, phone: (t.phone || '').trim() });
       // Queued after the write so a mail outage can't cost us the account.
       pendingMail.push({ name, email });
@@ -497,4 +494,63 @@ export const issueResetLink = asyncHandler(async (req, res) => {
       ? `Emailed to ${trainer.email}. The link is single-use and expires in ${env.resetTokenMinutes} minutes.`
       : `Email is not configured, so nothing was sent. Copy this link to ${trainer.name} yourself — it is single-use and expires in ${env.resetTokenMinutes} minutes.`,
   });
+});
+
+/**
+ * DELETE /api/v1/trainers/:id
+ *
+ * Removes a person FROM THIS ORGANIZATION, not from the product.
+ *
+ * That distinction is the whole reason membership is a row. The same mentor
+ * may teach at another institution, and deleting their account because one
+ * college let them go would silently sign them out of a job they still have —
+ * and orphan that college's feedback at the same time.
+ *
+ * So this deletes the membership. The account itself is removed only when the
+ * membership just revoked was their last one, which keeps the product from
+ * accumulating accounts that belong nowhere.
+ */
+export const removeTrainer = asyncHandler(async (req, res) => {
+  const trainer = await User.findOne({ _id: req.params.id, role: 'trainer' });
+  if (!trainer) throw notFound('Mentor not found');
+
+  const orgId = req.organization?._id;
+  const staffed = await Batch.countDocuments({
+    status: 'open',
+    $or: [{ 'classes.mainTrainers': trainer._id }, { 'classes.supportTrainers': trainer._id }],
+  });
+  if (staffed > 0) {
+    throw badRequest(
+      `${trainer.name} is staffed on ${staffed} cohort${staffed === 1 ? '' : 's'} that ` +
+        'are collecting right now. Take them off those rosters first.',
+      'STAFFED_ON_OPEN'
+    );
+  }
+
+  await Membership.deleteOne({ organization: orgId, user: trainer._id });
+
+  /* Their remaining memberships decide whether the ACCOUNT survives. */
+  const remaining = await runUnscoped(() =>
+    Membership.countDocuments({ user: trainer._id, isActive: true })
+  );
+
+  if (remaining === 0) {
+    await runUnscoped(() => User.deleteOne({ _id: trainer._id }));
+  } else {
+    /* Still employed elsewhere: drop only this organization from their list,
+       so the tenant filter stops matching them here and keeps matching there. */
+    await runUnscoped(() =>
+      User.updateOne({ _id: trainer._id }, { $pull: { organization: orgId } })
+    );
+  }
+
+  recordAudit(req, {
+    action: 'trainer.remove',
+    entity: 'user',
+    entityId: trainer._id,
+    entityName: trainer.name,
+    meta: { accountDeleted: remaining === 0, remainingOrganizations: remaining },
+  });
+
+  res.json({ removed: true, accountDeleted: remaining === 0 });
 });

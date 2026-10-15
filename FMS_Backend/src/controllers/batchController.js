@@ -504,3 +504,43 @@ export const reattribute = asyncHandler(async (req, res) => {
 
   res.json({ ...result, session: target || null });
 });
+
+/**
+ * DELETE /api/v1/batches/:id
+ *
+ * A cohort that collected nothing can go; one that collected anything cannot.
+ *
+ * The feedback is the point of the product and it is anonymous, so there is
+ * no way to reconstruct it and nobody to ask. Archiving keeps it and takes
+ * the cohort out of the way, which is what anyone wants in every case except
+ * the one this handles: a cohort created by mistake.
+ */
+export const deleteBatch = asyncHandler(async (req, res) => {
+  const batch = await Batch.findById(req.params.id);
+  if (!batch) throw notFound('Cohort not found');
+
+  const responses = await Feedback.countDocuments({ batch: batch._id });
+  if (responses > 0) {
+    throw badRequest(
+      `"${batch.name}" holds ${responses} anonymous response${responses === 1 ? '' : 's'}. ` +
+        'Archive it instead — this feedback cannot be reconstructed, and there is nobody to ask again.',
+      'HAS_FEEDBACK'
+    );
+  }
+  if (batch.status === 'open') {
+    /* An open cohort may be mid-collection. Deleting it would take the form
+       away from students with it half-answered. */
+    throw badRequest('Lock the cohort before deleting it.', 'STILL_OPEN');
+  }
+
+  await DeviceLock.deleteMany({ batch: batch._id });
+  await Batch.deleteOne({ _id: batch._id });
+
+  recordAudit(req, {
+    action: 'batch.delete',
+    entity: 'batch',
+    entityId: batch._id,
+    entityName: batch.name,
+  });
+  res.json({ deleted: true });
+});

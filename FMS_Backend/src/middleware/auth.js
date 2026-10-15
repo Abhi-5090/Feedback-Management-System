@@ -48,7 +48,18 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
      can forget to add. Nothing enters a tenant context before this point, so
      an authenticated route that somehow skipped it would throw on its first
      query rather than run across every organization. */
-  const org = await resolveTenantFor(req);
+  /* A handful of routes must work BEFORE an organization is chosen — the one
+     that lists the choices, and the one that reads your own account. Without
+     this, somebody who works at two institutions meets a locked door with the
+     key behind it. The opt-out is explicit and names itself at the route, so
+     it cannot be inherited by accident. */
+  let org = null;
+  try {
+    org = await resolveTenantFor(req);
+  } catch (err) {
+    if (!(req.tenantOptional && err?.code === 'ORGANIZATION_CHOICE_REQUIRED')) throw err;
+    org = null;
+  }
   /* Entered HERE rather than inside the resolver: enterWith() binds to the
      current execution context, so it must happen on the synchronous path to
      next() or the handlers downstream never see it. */
@@ -78,6 +89,12 @@ export const requireRole = (...roles) => (req, _res, next) => {
      tenant) and catastrophic for these (return every tenant's feedback under
      a heading that says "your classes"). Refusing is the only safe reading:
      there is no sensible organization to guess. */
+  /* PERMISSIONS COME FROM THE MEMBERSHIP, not the person. A mentor at one
+     institution who administers another must be an admin only where a
+     membership row says so — reading the global role here would carry their
+     authority across the line. */
+  const effective = req.membershipRole || req.user.role;
+
   if (req.user.role === 'superadmin' && roles.includes('admin')) {
     if (!req.organization) {
       return next(
@@ -90,7 +107,7 @@ export const requireRole = (...roles) => (req, _res, next) => {
     return next();
   }
 
-  if (!roles.includes(req.user.role)) return next(forbidden('Insufficient permissions'));
+  if (!roles.includes(effective)) return next(forbidden('Insufficient permissions'));
   return next();
 };
 
@@ -114,4 +131,17 @@ export const requirePasswordChanged = (req, _res, next) => {
     );
   }
   return next();
+};
+
+/**
+ * Marks a route as reachable before an organization has been chosen.
+ *
+ * Deliberately a separate middleware written at the route rather than a
+ * default: a route that forgets it fails loudly with "choose an
+ * organization", while a route that silently inherited it would run with no
+ * tenant at all.
+ */
+export const tenantOptional = (req, _res, next) => {
+  req.tenantOptional = true;
+  next();
 };

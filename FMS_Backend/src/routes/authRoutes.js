@@ -4,8 +4,9 @@ import {
   updateDigest, systemStatus,  startTwoFactor,
   enableTwoFactor,
   disableTwoFactor,
+  myOrganizations,
 } from '../controllers/authController.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, tenantOptional } from '../middleware/auth.js';
 import { validate } from '../utils/validate.js';
 import {
   loginSchema, updateMeSchema, forgotPasswordSchema, resetPasswordSchema, digestSchema,
@@ -15,7 +16,10 @@ import { loginLimiter } from '../middleware/rateLimit.js';
 const router = Router();
 
 router.post('/login', loginLimiter, validate(loginSchema), login);
-router.get('/me', requireAuth, me);
+router.get('/me', tenantOptional, requireAuth, me);
+/* Deliberately reachable without a tenant: this is the call that tells
+   somebody which organizations they may choose from. */
+router.get('/organizations', tenantOptional, requireAuth, myOrganizations);
 // Self-service account update (name / email / password) for both roles.
 router.patch('/me', requireAuth, validate(updateMeSchema), updateMe);
 // Digest opt-in/out. Reachable from Settings for both roles — this endpoint

@@ -55,17 +55,38 @@ const WRITE_OPS = [
 export function tenantPlugin(schema, options = {}) {
   const field = options.field || 'organization';
 
-  /* `required: false` for User alone: a super admin belongs to no
-     organization, which is what makes them a platform account rather than a
-     very powerful member of one tenant. */
+  /**
+   * `multi` makes the tenant field an ARRAY — one document belonging to
+   * several organizations.
+   *
+   * Only User needs it, and it is what lets one person work at two
+   * institutions. It is safe for every existing query because MongoDB matches
+   * a scalar filter against the ELEMENTS of an array: `{organization: X}`
+   * finds a user whose array contains X, exactly as it found one whose field
+   * equalled X. Thirty-one query sites therefore keep scoping correctly
+   * without being touched — and not touching them is the point, because each
+   * one edited by hand is a chance to produce a silent cross-tenant read.
+   *
+   * `required: false` is for the super admin, who belongs to no organization
+   * at all — that absence is what makes them a platform account rather than a
+   * very powerful member of one tenant.
+   */
+  const multi = options.multi === true;
+
   schema.add({
-    [field]: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Organization',
-      required: options.required !== false,
-      default: null,
-      index: true,
-    },
+    [field]: multi
+      ? {
+          type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Organization' }],
+          default: () => [],
+          index: true,
+        }
+      : {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Organization',
+          required: options.required !== false,
+          default: null,
+          index: true,
+        },
   });
 
   /* Scope every query. `getFilter()` is mutated in place rather than chaining
@@ -118,6 +139,17 @@ export function tenantPlugin(schema, options = {}) {
       return next(err);
     }
     if (!org) return next();
+
+    if (multi) {
+      /* ADDED, never replaced. A document that already belongs to two
+         organizations must not be reduced to whichever one happened to be
+         current when it was last saved — that is how a mentor silently loses
+         an institution by having their name edited. */
+      const current = (this[field] || []).map(String);
+      if (!current.includes(String(org))) this[field] = [...(this[field] || []), org];
+      return next();
+    }
+
     if (!this[field]) {
       this[field] = org;
     } else if (String(this[field]) !== String(org)) {

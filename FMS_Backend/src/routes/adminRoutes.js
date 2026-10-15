@@ -26,8 +26,15 @@ import {
   bulkPreview,
   bulkTemplate,
   issueResetLink,
+  removeTrainer,
 } from '../controllers/trainerController.js';
-import { createClass, listClasses, updateClass, archiveClass } from '../controllers/classController.js';
+import {
+  createClass,
+  listClasses,
+  updateClass,
+  archiveClass,
+  deleteClass,
+} from '../controllers/classController.js';
 import { listAudit } from '../controllers/auditController.js';
 import { runDigestsNow, auditActions, sendTestMail } from '../controllers/systemController.js';
 import {
@@ -47,6 +54,7 @@ import {
   rotatePasscode,
   archiveBatch,
   batchRounds,
+  deleteBatch,
 } from '../controllers/batchController.js';
 
 import {
@@ -78,6 +86,9 @@ router.post('/trainers/bulk/preview', admin, validate(trainerBulkPreviewSchema),
 router.post('/trainers/bulk', admin, validate(trainerBulkSchema), bulkCreateTrainers);
 router.get('/trainers', admin, listQuery, listTrainers);
 router.patch('/trainers/:id', admin, validate(trainerUpdateSchema), updateTrainer);
+/* Removes them from THIS organization; the account survives if they work
+   somewhere else. */
+router.delete('/trainers/:id', admin, removeTrainer);
 // Hand a mentor a single-use reset link directly — the way back into an account
 // when email is not configured or not reaching them.
 router.post('/trainers/:id/reset-link', admin, issueResetLink);
@@ -87,6 +98,8 @@ router.post('/classes', admin, validate(classCreateSchema), createClass);
 router.get('/classes', admin, listQuery, listClasses);
 router.patch('/classes/:id', admin, validate(classUpdateSchema), updateClass);
 router.patch('/classes/:id/archive', admin, archiveClass);
+/* Deletion refuses while anything depends on it — see the controller. */
+router.delete('/classes/:id', admin, deleteClass);
 
 // Parameters
 router.get('/parameters', admin, listParameters);
@@ -109,6 +122,7 @@ router.post('/batches/:id/lock', admin, lockBatch);
 router.post('/batches/:id/passcode', admin, rotatePasscode);
 router.get('/batches/:id/rounds', admin, batchRounds);
 router.patch('/batches/:id/archive', admin, archiveBatch);
+router.delete('/batches/:id', admin, deleteBatch);
 
 // Audit trail (admin only) — who did what, when.
 /* ── Phases ───────────────────────────────────────────────────────────────
