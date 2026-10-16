@@ -21,6 +21,10 @@ export const AuthAPI = {
 };
 
 export const TrainersAPI = {
+  /* People across the whole platform an admin could add. Identity only — see
+     the controller for what it deliberately withholds. */
+  directory: (q) => api.get('/trainers/directory', { params: { q } }).then((r) => r.data),
+  addExisting: (id) => api.post(`/trainers/${id}/add`).then((r) => r.data),
   // Paginated. Returns { trainers, page, limit, total, pages } — the mentor
   // roster grows monotonically, so the browser never receives all of it.
   list: (params = {}) => api.get('/trainers', { params }).then((r) => r.data),

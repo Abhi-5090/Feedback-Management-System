@@ -5,6 +5,7 @@ import Card, { EmptyState } from '../../components/Card.jsx';
 import Modal from '../../components/Modal.jsx';
 import { SkeletonRows } from '../../components/Spinner.jsx';
 import PageHeader from '../../components/PageHeader.jsx';
+import AddExistingMentor from '../../components/AddExistingMentor.jsx';
 import BulkUploadTrainers from '../../components/BulkUploadTrainers.jsx';
 import InfoTooltip from '../../components/InfoTooltip.jsx';
 import Icon from '../../components/Icon.jsx';
@@ -69,6 +70,7 @@ const TRAINER_FIELDS = (t) => [
 
 export default function Trainers() {
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [query, setQuery] = useState('');
   const toast = useToast();
   const [trainers, setTrainers] = useState(null);
@@ -193,10 +195,16 @@ export default function Trainers() {
     </button>
   );
 
-  /* Import sits beside "New trainer" as a secondary action: it's the faster
-     path for onboarding a cohort, but creating one person stays the default. */
+  /* Import and "Add existing" sit beside "New mentor" as secondary actions.
+     Creating one person stays the default, but the same mentor often teaches
+     at several of these colleges — and for them, finding the person who
+     already exists is the right move, not minting a second account that
+     splits one teacher's history across two logins. */
   const headerActions = (
     <>
+      <button className="btn-outline" onClick={() => setDirectoryOpen(true)}>
+        <Icon name="users" size={15} /> Add existing
+      </button>
       <button className="btn-outline" onClick={() => setBulkOpen(true)}>
         <Icon name="download" size={15} className="rotate-180" /> Import Excel
       </button>
@@ -506,6 +514,12 @@ export default function Trainers() {
           </div>
         </form>
       </Modal>
+      <AddExistingMentor
+        open={directoryOpen}
+        onClose={() => setDirectoryOpen(false)}
+        onAdded={load}
+      />
+
       <BulkUploadTrainers open={bulkOpen} onClose={() => setBulkOpen(false)} onImported={load} />
     </div>
   );

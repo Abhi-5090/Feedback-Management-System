@@ -154,3 +154,112 @@ describe('what one organization may learn about another', () => {
     );
   });
 });
+
+describe('the people directory', () => {
+  const search = (q) =>
+    request(target())
+      .get(`/api/trainers/directory?q=${encodeURIComponent(q)}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+
+  test('finds somebody who works at another institution', async () => {
+    /* These organizations are colleges served by one training operation, not
+       unrelated customers — the mentors are the same people, and staffing a
+       cohort means finding one rather than minting a second account. */
+    const res = await search('meera');
+    expect(res.status).toBe(200);
+    expect(res.body.people.map((p) => p.email)).toContain('meera@elsewhere.test');
+  });
+
+  test('searches by email as well as name', async () => {
+    const res = await search('elsewhere.test');
+    expect(res.body.people.map((p) => p.name)).toContain('Meera Mentor');
+  });
+
+  test('returns NOTHING without a search term', async () => {
+    /* A browsable list of everybody is a bigger thing to hand out than the
+       ability to look somebody up, and the task is always "find this person
+       I know about". */
+    const res = await request(target())
+      .get('/api/trainers/directory')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.body.people).toEqual([]);
+    expect(res.body.hint).toMatch(/at least two characters/i);
+  });
+
+  test('carries identity, and nothing about performance', async () => {
+    /* Being able to staff somebody is a different thing from being able to
+       read their performance review at another college. */
+    const res = await search('meera');
+    const [person] = res.body.people;
+    expect(Object.keys(person).sort()).toEqual(
+      ['alreadyHere', 'email', 'id', 'name', 'shortName'].sort()
+    );
+  });
+
+  test('never says WHICH other institutions they work at', async () => {
+    const res = await search('meera');
+    const body = JSON.stringify(res.body);
+    expect(body).not.toContain('Other Institute');
+    expect(body).not.toContain('other-institute');
+  });
+
+  test('marks people who are already here, so add cannot fail by surprise', async () => {
+    await add({ name: 'Meera Mentor', email: 'meera@elsewhere.test', password: 'Ignored-Pass-99' });
+    const res = await search('meera');
+    expect(res.body.people.find((p) => p.email === 'meera@elsewhere.test').alreadyHere).toBe(true);
+  });
+
+  test('a mentor cannot read the directory at all', async () => {
+    const mentorToken = await loginToken(request, 'meera@elsewhere.test', THEIR_PASSWORD).catch(() => null);
+    if (!mentorToken) return;
+    const res = await request(target())
+      .get('/api/trainers/directory?q=meera')
+      .set('Authorization', `Bearer ${mentorToken}`)
+      .set('X-Organization', String(other.org._id));
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('adding from the directory', () => {
+  test('adds them without minting an account or a password', async () => {
+    const res = await request(target())
+      .post(`/api/trainers/${elsewhere._id}/add`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(201);
+    expect(res.body.addedExisting).toBe(true);
+
+    const accounts = await runUnscoped(() => User.countDocuments({ email: 'meera@elsewhere.test' }));
+    expect(accounts).toBe(1);
+    await expect(loginToken(request, 'meera@elsewhere.test', THEIR_PASSWORD)).resolves.toEqual(
+      expect.any(String)
+    );
+  });
+
+  test('they appear in this organization afterwards', async () => {
+    await request(target())
+      .post(`/api/trainers/${elsewhere._id}/add`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    const list = await request(target()).get('/api/trainers').set('Authorization', `Bearer ${adminToken}`);
+    expect((list.body.trainers || list.body.items || []).map((t) => t.email))
+      .toContain('meera@elsewhere.test');
+  });
+
+  test('adding the same person twice is refused', async () => {
+    await request(target()).post(`/api/trainers/${elsewhere._id}/add`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    const again = await request(target()).post(`/api/trainers/${elsewhere._id}/add`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(again.status).toBe(409);
+    expect(again.body.code).toBe('ALREADY_A_MEMBER');
+  });
+
+  test('a mentor cannot add anybody', async () => {
+    const mentorToken = await loginToken(request, 'meera@elsewhere.test', THEIR_PASSWORD).catch(() => null);
+    if (!mentorToken) return;
+    const res = await request(target())
+      .post(`/api/trainers/${elsewhere._id}/add`)
+      .set('Authorization', `Bearer ${mentorToken}`)
+      .set('X-Organization', String(other.org._id));
+    expect(res.status).toBe(403);
+  });
+});

@@ -614,3 +614,113 @@ export const removeTrainer = asyncHandler(async (req, res) => {
 
   res.json({ removed: true, accountDeleted: remaining === 0 });
 });
+
+/**
+ * GET /api/v1/trainers/directory?q=&limit=
+ *
+ * Everyone on the platform an admin could add to their organization.
+ *
+ * THIS CROSSES THE TENANT LINE ON PURPOSE, which nothing else in the product
+ * does, so it is worth saying exactly how far. These organizations are
+ * colleges served by one training operation, not unrelated customers: the
+ * mentors are the same people teaching at several of them, and staffing a
+ * cohort means finding somebody who already exists rather than minting a
+ * second account for them.
+ *
+ * What it returns is IDENTITY — the name and address you need to recognise a
+ * colleague and add them. What it deliberately does not return is anything
+ * about how they are doing elsewhere: no ratings, no feedback, no cohorts,
+ * not even which other organizations they belong to. Being able to staff
+ * somebody is a different thing from being able to read their performance
+ * review at another college, and the first does not require the second.
+ */
+export const trainerDirectory = asyncHandler(async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+
+  /* A search, not a dump. Without a term this returns nothing rather than
+     every person on the platform: a browsable list of everybody is a bigger
+     thing to hand out than the ability to look somebody up, and the task here
+     is always "find this person I know about". */
+  if (q.length < 2) {
+    return res.json({ people: [], hint: 'Type at least two characters to search.' });
+  }
+
+  const rx = new RegExp(escapeRegex(q), 'i');
+  const people = await runUnscoped(() =>
+    User.find({
+      role: 'trainer',
+      isActive: true,
+      $or: [{ name: rx }, { email: rx }, { shortName: rx }],
+    })
+      .select('name email shortName')
+      .sort({ name: 1 })
+      .limit(limit)
+      .lean()
+  );
+  if (!people.length) return res.json({ people: [] });
+
+  /* Which of them are already here, so the list can say "already in this
+     organization" instead of letting an admin click add and meet an error. */
+  const mine = await Membership.find({ user: { $in: people.map((p) => p._id) } })
+    .select('user')
+    .lean();
+  const here = new Set(mine.map((m) => String(m.user)));
+
+  res.json({
+    people: people.map((p) => ({
+      id: String(p._id),
+      name: p.name,
+      email: p.email,
+      shortName: p.shortName || '',
+      alreadyHere: here.has(String(p._id)),
+    })),
+  });
+});
+
+/**
+ * POST /api/v1/trainers/:id/add
+ *
+ * Add somebody who already exists to this organization, by id.
+ *
+ * Separate from creating a mentor because it is a different act: nothing is
+ * minted, no password is issued, and the person already has an account they
+ * use. Collapsing the two would mean a create endpoint whose behaviour
+ * depends on whether a stranger happens to exist.
+ */
+export const addExistingTrainer = asyncHandler(async (req, res) => {
+  await assertWithinQuota(req.organization?._id, 'maxUsers');
+
+  const person = await runUnscoped(() => User.findById(req.params.id));
+  if (!person || person.role !== 'trainer' || !person.isActive) {
+    throw notFound('That person is not available to add');
+  }
+
+  const already = await Membership.findOne({ user: person._id });
+  if (already) throw conflict(`${person.name} is already in this organization.`, 'ALREADY_A_MEMBER');
+
+  await Membership.create({ user: person._id, role: 'trainer', invitedBy: req.user?._id });
+  await runUnscoped(() =>
+    User.updateOne({ _id: person._id }, { $addToSet: { organization: req.organization._id } })
+  );
+
+  recordAudit(req, {
+    action: 'trainer.add_existing',
+    entity: 'user',
+    entityId: person._id,
+    entityName: person.name,
+    meta: { email: person.email, via: 'directory' },
+  });
+
+  const mail = addedToOrganizationEmail({
+    name: person.name,
+    organizationName: req.organization?.name || 'your institution',
+    loginUrl: `${env.appUrl}/login`,
+  });
+  await sendMail({ to: person.email, ...mail, fromName: orgFromName(req) });
+
+  res.status(201).json({
+    trainer: { id: String(person._id), name: person.name, email: person.email },
+    addedExisting: true,
+  });
+});

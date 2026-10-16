@@ -27,6 +27,8 @@ import {
   bulkTemplate,
   issueResetLink,
   removeTrainer,
+  trainerDirectory,
+  addExistingTrainer,
 } from '../controllers/trainerController.js';
 import {
   createClass,
@@ -82,6 +84,10 @@ const listQuery = validate(listQuerySchema, 'query');
 router.post('/trainers', admin, validate(trainerCreateSchema), createTrainer);
 // Registered before '/trainers/:id' patterns so 'bulk' is never read as an id.
 router.get('/trainers/bulk/template', admin, bulkTemplate);
+/* Crosses the tenant line deliberately — see the controller for exactly how
+   far. Before /trainers/:id so "directory" is never read as an id. */
+router.get('/trainers/directory', admin, trainerDirectory);
+router.post('/trainers/:id/add', admin, addExistingTrainer);
 router.post('/trainers/bulk/preview', admin, validate(trainerBulkPreviewSchema), bulkPreview);
 router.post('/trainers/bulk', admin, validate(trainerBulkSchema), bulkCreateTrainers);
 router.get('/trainers', admin, listQuery, listTrainers);
