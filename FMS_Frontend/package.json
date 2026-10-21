@@ -11,7 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@sentry/browser": "^10.76.0",
+    "@sentry/browser": "^11.1.0",
     "axios": "^1.7.2",
     "framer-motion": "^11.3.8",
     "react": "^18.3.1",
