@@ -13,7 +13,7 @@
   "dependencies": {
     "@sentry/browser": "^10.76.0",
     "axios": "^1.7.2",
-    "framer-motion": "^11.3.8",
+    "framer-motion": "^13.4.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.18.4",
