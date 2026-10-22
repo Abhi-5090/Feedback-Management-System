@@ -55,11 +55,23 @@ describe('a locked account makes no requests at all', () => {
     expect(overview).not.toHaveBeenCalled();
   });
 
-  test('and sends no organization header while locked', async () => {
+  test('a stored choice is still carried while locked, and harmlessly', async () => {
+    /* This used to assert the header was withheld while locked. That came
+       from gating the header on whether the person "needed" to choose, and
+       the gate turned out to be the bug: it was computed from state that
+       arrives asynchronously, so it read false in the moment just after
+       choosing and cleared the header that choice had set.
+       
+       Carrying it unconditionally is harmless here. A locked account is
+       refused every data route anyway, and the self-management routes it CAN
+       reach do not use the header. The property that mattered in this block —
+       that a locked account issues no data fetches — is asserted by the test
+       above, which is where it belongs. */
     currentUser = { role: 'superadmin', mustChangePassword: true };
     localStorage.setItem('fms.organization', 'o1');
     renderWith(<Probe />);
-    await waitFor(() => expect(setOrganizationHeader).toHaveBeenCalledWith(undefined));
+    await waitFor(() => expect(setOrganizationHeader).toHaveBeenCalledWith('o1'));
+    expect(overview).not.toHaveBeenCalled();
   });
 
   test('once unlocked, it fetches normally', async () => {

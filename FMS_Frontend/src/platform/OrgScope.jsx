@@ -51,11 +51,23 @@ export function OrgScopeProvider({ children }) {
      super admin means the platform-wide view rather than the organization
      they chose — wrong, and quietly so. */
   useEffect(() => {
-    /* Sent whenever there is a choice to express: a super admin viewing a
-       tenant, or a member who works at more than one. Somebody with a single
-       membership sends nothing and the server uses the only one they have. */
-    setOrganizationHeader(isSuper || needsChoice ? orgId : undefined);
-  }, [isSuper, needsChoice, orgId]);
+    /* ANY CHOSEN ORGANIZATION IS SENT, with no cleverness about whether the
+       person "needs" to choose.
+       
+       This used to be gated on having more than one membership, and the gate
+       was wrong in the one moment that mattered: the condition is computed
+       from state that arrives asynchronously, so immediately after signing in
+       it read false and this effect CLEARED the header that had just been set
+       by choosing. Every request then went out saying nothing, the server
+       asked for a choice, and the person was returned to the picker they had
+       just used.
+       
+       Sending it unconditionally is also simply correct. The server checks
+       the header against the caller's memberships and refuses any
+       organization they are not in, so naming the only one you have is
+       harmless and naming one of several is required. */
+    setOrganizationHeader(orgId || undefined);
+  }, [orgId]);
 
   useEffect(() => {
     if (!isSuper && !needsChoice) {
@@ -87,15 +99,41 @@ export function OrgScopeProvider({ children }) {
      would leave every request pointed at nothing. Fall back to the platform
      view rather than leaving them stuck on an error. */
   useEffect(() => {
-    if (!loaded || !orgId || (!isSuper && !needsChoice)) return;
-    /* A stored organization they have been removed from would point every
-       request at somewhere they cannot go. Clearing it sends them back to the
-       picker rather than leaving them stuck on a refusal. */
+    if (!loaded || !orgId) return;
+
+    /* AN EMPTY LIST IS NOT EVIDENCE OF ANYTHING.
+       
+       A stored organization the person has been removed from would point
+       every request at somewhere they cannot go, so it is cleared — but only
+       against a list that actually has contents. The list is populated by
+       another effect, and React runs effects in order, so immediately after
+       choosing an organization this one ran first, saw nothing, concluded the
+       choice was stale and threw it away. The next request went out naming no
+       institution, the server asked for a choice, and the person was returned
+       to the picker they had just used. Clicking again raced identically: a
+       loop with nothing on screen to explain it.
+       
+       "I do not know yet" and "you are not a member" are different answers,
+       and only the second justifies discarding somebody's choice. */
+    if (organizations.length === 0) return;
     if (!organizations.some((o) => o.id === orgId)) setOrgId('');
-  }, [isSuper, needsChoice, loaded, orgId, organizations]);
+  }, [loaded, orgId, organizations]);
 
   const setOrg = useCallback((next) => {
     const value = next || '';
+
+    /* APPLIED SYNCHRONOUSLY, not left to the effect below.
+       
+       Choosing an organization is immediately followed by navigating into it,
+       and React runs effects children-first — so the page being navigated to
+       fetched BEFORE the provider above it had set the header. The request
+       went out saying nothing about which institution, came back asking for a
+       choice, and bounced the person straight back to the picker they had
+       just used. Clicking again raced again: a loop with no error on screen.
+       
+       The effect stays, for the orgId restored from storage on a cold load.
+       This line is for the instant the choice is made. */
+    setOrganizationHeader(value || undefined);
     setOrgId(value);
     try {
       if (value) localStorage.setItem(KEY, value);

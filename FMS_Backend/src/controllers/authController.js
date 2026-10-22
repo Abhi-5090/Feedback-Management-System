@@ -75,7 +75,12 @@ export const login = asyncHandler(async (req, res) => {
   // can authenticate without cookies.
   recordAudit(req, { action: 'auth.login', entity: 'user', entityId: user._id, entityName: user.name, actor: user });
 
-  res.json({ user, token, role: user.role });
+  /* The memberships ride along with the session itself. Without them the
+     client cannot know a person works at two colleges until it asks again,
+     and in that gap it behaves as though they work at none — which is how
+     choosing an organization came to depend on a request failing first. */
+  const memberships = user.role === 'superadmin' ? [] : await membershipsFor(user._id);
+  res.json({ user, token, role: user.role, memberships });
 });
 
 // GET /api/auth/me

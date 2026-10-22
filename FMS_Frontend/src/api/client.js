@@ -135,14 +135,31 @@ api.interceptors.response.use(
     }
 
     /* The account works; it just has not said which institution it is in.
-       Sending them to the picker turns a dead screen full of failed requests
-       into the one question that unblocks it. Guarded against looping on the
-       picker itself, which is allowed to make this very request. */
-    if (
-      data?.code === 'ORGANIZATION_CHOICE_REQUIRED' &&
-      !window.location.pathname.startsWith('/choose-organization')
-    ) {
-      window.location.assign('/choose-organization');
+       
+       RETRY BEFORE REDIRECTING. If a choice has already been made and this
+       request simply went out without it — a race between navigating into an
+       organization and the header being applied — then sending the person
+       back to the picker is wrong twice over: they already answered, and the
+       answer is sitting right here. One retry carrying the header fixes it
+       invisibly, and anything still refused after that genuinely needs the
+       question asked.
+       
+       Marked on the config so a retry can never retry itself. */
+    if (data?.code === 'ORGANIZATION_CHOICE_REQUIRED') {
+      const cfg = error.config || {};
+      const sentNothing = !cfg.headers?.['X-Organization'];
+
+      if (organizationId && sentNothing && !cfg.__orgRetry) {
+        cfg.__orgRetry = true;
+        cfg.headers = { ...(cfg.headers || {}), 'X-Organization': organizationId };
+        return api.request(cfg);
+      }
+
+      /* Guarded against looping on the picker itself, which is allowed to
+         make this very request. */
+      if (!window.location.pathname.startsWith('/choose-organization')) {
+        window.location.assign('/choose-organization');
+      }
     }
     return Promise.reject(error);
   }
