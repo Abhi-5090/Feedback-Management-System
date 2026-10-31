@@ -31,8 +31,13 @@ describe('the header is applied the instant the choice is made', () => {
     const { setOrganizationHeader, api } = await import('../api/client.js');
     setOrganizationHeader('org-123');
 
-    const [handler] = api.interceptors.request.handlers.filter((h) => h?.fulfilled);
-    const cfg = handler.fulfilled({ url: '/analytics/sessions', headers: {} });
+    /* Run EVERY request interceptor, in order, the way axios does. Taking
+       just the first broke the moment a second one was added for failover —
+       and a test that depends on how many interceptors exist is testing the
+       wrong thing. */
+    const cfg = api.interceptors.request.handlers
+      .filter((h) => h?.fulfilled)
+      .reduce((c, h) => h.fulfilled(c), { url: '/analytics/sessions', headers: {} });
     expect(cfg.headers['X-Organization']).toBe('org-123');
   });
 
@@ -40,8 +45,9 @@ describe('the header is applied the instant the choice is made', () => {
     const { setOrganizationHeader, api } = await import('../api/client.js');
     setOrganizationHeader('org-123');
     setOrganizationHeader(undefined);
-    const [handler] = api.interceptors.request.handlers.filter((h) => h?.fulfilled);
-    const cfg = handler.fulfilled({ url: '/analytics/sessions', headers: {} });
+    const cfg = api.interceptors.request.handlers
+      .filter((h) => h?.fulfilled)
+      .reduce((c, h) => h.fulfilled(c), { url: '/analytics/sessions', headers: {} });
     expect(cfg.headers?.['X-Organization']).toBeUndefined();
   });
 });

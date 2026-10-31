@@ -18,6 +18,74 @@ const baseURL = (import.meta.env.VITE_API_URL || '') + API_VERSION;
 
 export const api = axios.create({ baseURL, withCredentials: true });
 
+/* ── Failover between two backends ─────────────────────────────────────────
+ *
+ * BOTH ARE REACHED THROUGH THIS ORIGIN, never by their own hostnames. That is
+ * the whole design, and it is forced by how the product authenticates: the
+ * session is an httpOnly, SameSite=lax cookie and there is no token in
+ * JS-readable storage, deliberately, so an XSS cannot steal a session. A
+ * lax cookie is NOT sent on a cross-site request — so calling
+ * fms-api-xxxx.onrender.com directly would reach a healthy server with no
+ * session attached, and every failover request would arrive as a stranger.
+ * Routing the spare through /api-backup on our own domain keeps one cookie
+ * jar and one origin, and costs nothing.
+ *
+ * WHAT COUNTS AS "THIS BACKEND IS DOWN" is deliberately narrow. A request with
+ * no response at all (the host is unreachable), or 502/503/504, which is a
+ * proxy saying it could not reach the app — a suspended Render service answers
+ * exactly this. A 500 does NOT qualify: the app was reached and threw, and the
+ * other copy runs the same code against the same database, so it will throw
+ * too. Nor does any 4xx, which is a real answer to a real question.
+ */
+const PRIMARY = API_VERSION;
+const BACKUP = (import.meta.env.VITE_API_BACKUP || '/api-backup') + '/v1';
+
+/* How long to keep using the spare after a failover before trying the primary
+   again. Short enough that recovery is noticed quickly; long enough that a
+   genuinely dead primary is not re-probed on every single request, which would
+   put its timeout in front of everything the page does. */
+const STICKY_MS = 60_000;
+
+let activeBase = PRIMARY;
+let switchedAt = 0;
+
+const DOWN_STATUSES = new Set([502, 503, 504]);
+
+/** True when the failure means "could not reach the app", not "the app said no". */
+export function looksUnreachable(error) {
+  if (!error) return false;
+  if (error.code === 'ECONNABORTED') return true;        // timed out
+  if (!error.response) return true;                       // network / DNS / refused
+  return DOWN_STATUSES.has(error.response.status);
+}
+
+/** Which base the next request should use, expiring the sticky window. */
+function currentBase() {
+  if (activeBase !== PRIMARY && Date.now() - switchedAt > STICKY_MS) {
+    activeBase = PRIMARY;
+  }
+  return activeBase;
+}
+
+function useOther(base) {
+  return base === PRIMARY ? BACKUP : PRIMARY;
+}
+
+/** Exposed for tests and for a status read-out; never set from a component. */
+export const failoverState = () => ({ activeBase, primary: PRIMARY, backup: BACKUP });
+export function __resetFailover() {
+  activeBase = PRIMARY;
+  switchedAt = 0;
+}
+
+api.interceptors.request.use((config) => {
+  /* The base is chosen per request rather than pinned at creation, so a
+     failover applies to everything in flight afterwards without rebuilding
+     the client. */
+  config.baseURL = currentBase();
+  return config;
+});
+
 /* ── Phase scope ───────────────────────────────────────────────────────────
  * The selected collection phase, appended to every feedback-bearing GET.
  *
@@ -110,7 +178,35 @@ export function clearPasswordChangeReload() {
 // Normalise error messages so UI can show err.message directly.
 api.interceptors.response.use(
   (res) => res,
-  (error) => {
+  async (error) => {
+    /* FAILOVER FIRST. Everything below this reads a response body to decide
+       what to do, and an unreachable backend has none — so the retry has to
+       happen before any of it, or a suspended service is read as an
+       unclassifiable error and the spare is never tried.
+
+       One attempt, marked on the config so a retry can never retry itself.
+       If the spare is also down the original failure surfaces, which is the
+       honest outcome: both are gone, and pretending otherwise would just
+       double every timeout. */
+    const cfg = error.config || {};
+    if (looksUnreachable(error) && !cfg.__failedOver) {
+      const other = useOther(cfg.baseURL || currentBase());
+      cfg.__failedOver = true;
+      cfg.baseURL = other;
+      try {
+        const res = await api.request(cfg);
+        /* Only stick to the spare once it has actually answered. Switching on
+           the attempt would strand every later request on a backend that is
+           equally dead. */
+        activeBase = other;
+        switchedAt = Date.now();
+        return res;
+      } catch {
+        /* Fall through to the normal handling with the ORIGINAL error: the
+           spare failing tells the user nothing useful about their request. */
+      }
+    }
+
     const data = error.response?.data;
     error.message = data?.error || error.message || 'Request failed';
     error.code = data?.code;

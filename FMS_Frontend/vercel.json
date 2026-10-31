@@ -6,6 +6,10 @@
   "rewrites": [
     {
       "source": "/api/:path*",
+      "destination": "https://fms-api-pxqr.onrender.com/api/:path*"
+    },
+    {
+      "source": "/api-backup/:path*",
       "destination": "https://fms-api-dzuv.onrender.com/api/:path*"
     },
     {
